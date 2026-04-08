@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Athena Marine Quote Desk</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="layout">
+    <section class="panel upload-panel">
+      <div>
+        <p class="eyebrow">Internal Use</p>
+        <h1>Athena Marine Quote Desk</h1>
+        <p class="lede">Upload a vessel requisition, review the matched products, and export a draft quote for manual client follow-up.</p>
+      </div>
+
+      <form id="quote-form" class="form-grid">
+        <label>
+          <span>Client Name</span>
+          <input type="text" name="clientName" required>
+        </label>
+        <label>
+          <span>Vessel Name</span>
+          <input type="text" name="vesselName" required>
+        </label>
+        <label>
+          <span>IMO Number</span>
+          <input type="text" name="imoNumber" required>
+        </label>
+        <label>
+          <span>Scheduled Arrival</span>
+          <input type="date" name="scheduledArrival" required>
+        </label>
+        <label>
+          <span>Contact Email</span>
+          <input type="email" name="contactEmail" required>
+        </label>
+        <label>
+          <span>Agent Name</span>
+          <input type="text" name="agentName" required>
+        </label>
+        <label>
+          <span>Port</span>
+          <input type="text" name="port">
+        </label>
+        <label class="file-field">
+          <span>Requisition File</span>
+          <input type="file" name="requisitionFile" accept=".csv,.xlsx,.xls" required>
+        </label>
+        <div class="form-actions">
+          <button type="submit" id="process-button">Process Requisition</button>
+          <a class="sample-link" href="/examples/sample-requisition.csv" download>Download Sample Requisition</a>
+        </div>
+      </form>
+      <p id="status-message" class="status-message"></p>
+    </section>
+
+    <section class="panel summary-panel hidden" id="summary-panel">
+      <div class="quote-summary-header">
+        <div>
+          <h2>Current Quote</h2>
+          <p>Review the draft internally, then close the view when you are done.</p>
+        </div>
+        <button id="close-quote-view-button" class="close-view-button" type="button" aria-label="Close current quote view">X</button>
+      </div>
+      <div class="summary-grid">
+        <article>
+          <span>Total Lines</span>
+          <strong id="summary-lines">0</strong>
+        </article>
+        <article>
+          <span>Review Required</span>
+          <strong id="summary-review">0</strong>
+        </article>
+        <article>
+          <span>Draft Total</span>
+          <strong id="summary-total">£0.00</strong>
+        </article>
+        <article>
+          <span>Process Time</span>
+          <strong id="summary-time">0 sec</strong>
+        </article>
+      </div>
+      <div class="quote-actions">
+        <button id="refresh-quote-button" type="button">Refresh Quote</button>
+        <button id="save-review-button" type="button">Save Review</button>
+        <button id="download-excel-button" type="button">Download Excel</button>
+        <button id="download-pdf-button" type="button">Download PDF</button>
+      </div>
+    </section>
+
+    <section class="panel results-panel hidden" id="results-panel">
+      <div class="section-header">
+        <h2>Draft Quote Review</h2>
+        <p>Adjust product, unit, or price before export if a line needs correction.</p>
+      </div>
+      <div class="table-wrapper">
+        <table id="results-table">
+          <thead>
+            <tr>
+              <th>Line</th>
+              <th>Original item</th>
+              <th>Matched product</th>
+              <th>Status</th>
+              <th>Customer quantity</th>
+              <th>Requested unit</th>
+              <th>Supplier quantity</th>
+              <th>Supplier unit</th>
+              <th>Total supplied</th>
+              <th>Price / unit</th>
+              <th>Total</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="panel history-panel">
+      <div class="section-header">
+        <h2>Recent Quotes</h2>
+        <p>Stored locally for review, audit, and future matching improvements.</p>
+      </div>
+      <div id="history-list" class="history-list"></div>
+    </section>
+  </main>
+
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
