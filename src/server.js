@@ -1,3 +1,5 @@
+import cookieParser from 'cookie-parser';
+import { randomUUID } from 'node:crypto';
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
@@ -16,24 +18,32 @@ const projectRoot = path.resolve(__dirname, '..');
 const uploadsDirectory = path.join(projectRoot, 'uploads');
 const fuzzyMatchThreshold = Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7);
 
-await fs.mkdir(uploadsDirectory, { recursive: true });
-
 async function resolveDefaultPriceListFile() {
   const candidates = [
     path.join(projectRoot, 'data', 'new price list.xlsx'),
     path.join(projectRoot, 'data', 'new price list styled.xlsx')
   ];
+
   const availableCandidates = [];
 
   for (const candidate of candidates) {
-    try { const stats = await fs.stat(candidate); availableCandidates.push({ candidate, modifiedTime: stats.mtimeMs }); }
-    catch {}
+    try {
+      const stats = await fs.stat(candidate);
+      availableCandidates.push({ candidate, modifiedTime: stats.mtimeMs });
+    } catch {
+      // Ignore missing candidate files and fall back to the ones that exist.
+    }
   }
 
-  if (!availableCandidates.length) return candidates[0];
-  availableCandidates.sort((a,b) => b.modifiedTime - a.modifiedTime);
+  if (!availableCandidates.length) {
+    return candidates[0];
+  }
+
+  availableCandidates.sort((left, right) => right.modifiedTime - left.modifiedTime);
   return availableCandidates[0].candidate;
 }
+
+await fs.mkdir(uploadsDirectory, { recursive: true });
 
 const priceListPath = process.env.PRICE_LIST_FILE || await resolveDefaultPriceListFile();
 const rawPriceList = await loadPriceList(priceListPath);
@@ -44,41 +54,546 @@ let quoteInsights = await loadQuoteInsights(catalog);
 const app = express();
 const upload = multer({ dest: uploadsDirectory });
 
+// Cookie parser middleware
+app.use(cookieParser());
+
+// Session ID assignment middleware
+app.use((req, res, next) => {
+  if (!req.cookies.sessionId) {
+    const sessionId = randomUUID();
+    res.cookie('sessionId', sessionId, {
+      httpOnly: true,
+      sameSite: 'lax',
+      maxAge: 1000 * 60 * 60 * 24 * 7 // 7 days
+    });
+    req.cookies.sessionId = sessionId;
+  }
+  next();
+});
+
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(projectRoot, 'public')));
 app.use('/examples', express.static(path.join(projectRoot, 'data')));
 
-// ✅ Serve homepage
-app.get("/", (req, res) => {
-  res.sendFile(path.join(projectRoot, "public", "index.html"));
+function serializeCatalogItem(product) {
+  return {
+    catalogKey: product.catalogKey || '',
+    displayName: product.displayName || product.productName,
+    productName: product.productName,
+    unit: product.unit,
+    unitType: product.unitType,
+    approxPieceWeightKg: product.approxPieceWeightKg ?? null,
+    supplyOptions: product.supplyOptions,
+    price: product.price,
+    keywords: product.keywords
+  };
+}
+
+function parsePositiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function computeDeliveredQuantityForSupplyQuantity(item, supplyQuantity) {
+  const numericSupplyQuantity = parsePositiveNumber(supplyQuantity);
+  const recalculatedSupplyQuantity = parsePositiveNumber(item.supplyQuantity);
+  const recalculatedDeliveredQuantity = Number(item.deliveredQuantity);
+
+  if (!numericSupplyQuantity) {
+    return null;
+  }
+
+  if (item.deliveredUnitType === 'pack') {
+    return numericSupplyQuantity;
+  }
+
+  if (!recalculatedSupplyQuantity || !Number.isFinite(recalculatedDeliveredQuantity)) {
+    return null;
+  }
+
+  const deliveredPerSupplierUnit = recalculatedDeliveredQuantity / recalculatedSupplyQuantity;
+  return Number((numericSupplyQuantity * deliveredPerSupplierUnit).toFixed(3));
+}
+
+function buildUnavailableQuoteItem(sourceItem, normalizedItem = null) {
+  const baseItem = normalizedItem || sourceItem;
+  const quantity = sourceItem.quantity === '' || sourceItem.quantity === null || sourceItem.quantity === undefined
+    ? null
+    : Number(sourceItem.quantity);
+
+  return {
+    ...baseItem,
+    lineNumber: sourceItem.lineNumber || baseItem.lineNumber,
+    quantity: Number.isFinite(quantity) ? quantity : null,
+    requestedUnit: sourceItem.requestedUnit || baseItem.requestedUnit || '',
+    price: Number(sourceItem.price || baseItem.price || 0),
+    supplyQuantity: 0,
+    supplierQuantityOverride: null,
+    deliveredQuantity: null,
+    deliveredUnitType: '',
+    total: 0,
+    status: 'UNAVAILABLE',
+    supplierProvision: 'Unavailable',
+    isUnavailable: true,
+    matchReason: 'marked unavailable'
+  };
+}
+
+function calculateDeliveredQuantityFromSelection(item, product, supplyQuantity) {
+  const request = resolveCustomerRequest(item);
+  const selectedOption = selectSupplyOption(request, product);
+  const numericSupplyQuantity = parsePositiveNumber(supplyQuantity);
+
+  if (!selectedOption || !numericSupplyQuantity || !selectedOption.exactUnitMatch) {
+    return {
+      deliveredQuantity: null,
+      deliveredUnitType: ''
+    };
+  }
+
+  if (request.customerUnitType === 'pack') {
+    return {
+      deliveredQuantity: numericSupplyQuantity,
+      deliveredUnitType: 'pack'
+    };
+  }
+
+  if (Number(selectedOption.option.unitQuantity) <= 0) {
+    return {
+      deliveredQuantity: null,
+      deliveredUnitType: ''
+    };
+  }
+
+  return {
+    deliveredQuantity: Number((numericSupplyQuantity * Number(selectedOption.option.unitQuantity)).toFixed(3)),
+    deliveredUnitType: selectedOption.deliveredUnitType || selectedOption.option.unitType || ''
+  };
+}
+
+function applyQuoteInsight(item, matchedItem) {
+  const insight = quoteInsights.find(item);
+  if (!insight) {
+    return matchedItem;
+  }
+
+  let learnedItem = matchedItem;
+
+  if (insight.matchedProductKey && insight.matchedProductKey !== matchedItem.matchedProductKey) {
+    learnedItem = applyManualSelection(item, catalog, insight.matchedProductKey);
+  }
+
+  if (!learnedItem.matchedProductKey) {
+    return learnedItem;
+  }
+
+  const shouldApplyQuantityCalibration = learnedItem.matchedProductKey === insight.matchedProductKey
+    && Number.isFinite(Number(learnedItem.quantity))
+    && Number(learnedItem.quantity) > 0
+    && Number.isFinite(Number(insight.quantityRatio))
+    && Number(insight.quantityRatio) > 0
+    && (insight.hasSupplierQuantityOverride || learnedItem.status !== 'MATCHED');
+
+  if (!shouldApplyQuantityCalibration && learnedItem === matchedItem) {
+    return matchedItem;
+  }
+
+  const product = catalog.find((catalogItem) => (catalogItem.catalogKey || catalogItem.productName) === learnedItem.matchedProductKey);
+  const reasonBits = [];
+  const nextItem = {
+    ...learnedItem,
+    confidence: learnedItem.confidence === 'manual' ? 'manual' : 'learned'
+  };
+
+  if (learnedItem !== matchedItem) {
+    reasonBits.push(`learned product match from ${insight.sourceQuoteId}`);
+  }
+
+  if (shouldApplyQuantityCalibration) {
+    const learnedSupplyQuantity = Math.max(1, Math.ceil(Number(learnedItem.quantity) * Number(insight.quantityRatio)));
+    const delivered = product
+      ? calculateDeliveredQuantityFromSelection(learnedItem, product, learnedSupplyQuantity)
+      : { deliveredQuantity: null, deliveredUnitType: '' };
+
+    nextItem.supplyQuantity = learnedSupplyQuantity;
+    nextItem.supplierQuantityOverride = learnedSupplyQuantity;
+    nextItem.deliveredQuantity = delivered.deliveredQuantity;
+    nextItem.deliveredUnitType = delivered.deliveredUnitType;
+    nextItem.total = calculateTotal(learnedSupplyQuantity, Number(nextItem.price || 0));
+    nextItem.supplierProvision = buildSupplierProvisionText({
+      matchedProduct: nextItem.matchedProduct,
+      supplyQuantity: learnedSupplyQuantity,
+      unit: nextItem.unit,
+      deliveredQuantity: delivered.deliveredQuantity,
+      deliveredUnitType: delivered.deliveredUnitType
+    });
+    reasonBits.push(`learned quantity ratio from ${insight.sourceQuoteId}`);
+  }
+
+  if (insight.hasManualPriceOverride && Number.isFinite(insight.learnedPrice) && insight.learnedPrice > 0) {
+    nextItem.price = insight.learnedPrice;
+    nextItem.total = calculateTotal(Number(nextItem.supplyQuantity || 0), insight.learnedPrice);
+    reasonBits.push(`learned price from ${insight.sourceQuoteId}`);
+  }
+
+  if (insight.hasManualUnitOverride && insight.learnedUnit) {
+    nextItem.unit = insight.learnedUnit;
+    nextItem.supplierProvision = buildSupplierProvisionText({
+      matchedProduct: nextItem.matchedProduct,
+      supplyQuantity: nextItem.supplyQuantity,
+      unit: nextItem.unit,
+      deliveredQuantity: nextItem.deliveredQuantity,
+      deliveredUnitType: nextItem.deliveredUnitType
+    });
+  }
+
+  if (reasonBits.length) {
+    nextItem.matchReason = [nextItem.matchReason, ...reasonBits].filter(Boolean).join('; ');
+  }
+
+  return nextItem;
+}
+
+function mergeQuoteItemOverrides(sourceItem, recalculatedItem) {
+  const recalculatedSupplyQuantity = parsePositiveNumber(recalculatedItem.supplyQuantity) || 1;
+  const supplierQuantityOverride = parsePositiveNumber(sourceItem.supplierQuantityOverride);
+  const effectiveSupplyQuantity = supplierQuantityOverride || recalculatedSupplyQuantity;
+  const effectivePrice = Number(sourceItem.price || 0) > 0 ? Number(sourceItem.price) : Number(recalculatedItem.price || 0);
+  const effectiveUnit = String(sourceItem.unit || '').trim() || recalculatedItem.unit || '';
+  const effectiveDeliveredQuantity = supplierQuantityOverride
+    ? computeDeliveredQuantityForSupplyQuantity(recalculatedItem, effectiveSupplyQuantity)
+    : recalculatedItem.deliveredQuantity;
+  const overrideReasons = [];
+
+  if (supplierQuantityOverride) {
+    overrideReasons.push('manual supplier quantity');
+  }
+
+  if (effectiveUnit && effectiveUnit !== recalculatedItem.unit) {
+    overrideReasons.push('manual unit override');
+  }
+
+  if (effectivePrice !== Number(recalculatedItem.price || 0)) {
+    overrideReasons.push('manual price override');
+  }
+
+  const overrideReasonText = overrideReasons.length ? overrideReasons.join('; ') : recalculatedItem.matchReason;
+
+  return {
+    ...recalculatedItem,
+    unit: effectiveUnit,
+    price: effectivePrice,
+    supplyQuantity: effectiveSupplyQuantity,
+    supplierQuantityOverride,
+    deliveredQuantity: effectiveDeliveredQuantity,
+    deliveredUnitType: recalculatedItem.deliveredUnitType,
+    total: calculateTotal(effectiveSupplyQuantity, effectivePrice),
+    supplierProvision: buildSupplierProvisionText({
+      matchedProduct: recalculatedItem.matchedProduct,
+      supplyQuantity: effectiveSupplyQuantity,
+      unit: effectiveUnit,
+      deliveredQuantity: effectiveDeliveredQuantity,
+      deliveredUnitType: recalculatedItem.deliveredUnitType
+    }),
+    overrideReasonText
+  };
+}
+
+function buildQuoteResponse(quote) {
+  return {
+    id: quote.id,
+    quoteNumber: quote.quoteNumber,
+    quoteDate: quote.quoteDate || quote.createdAt,
+    expiryDate: quote.expiryDate || null,
+    clientName: quote.clientName,
+    vesselName: quote.vesselName,
+    port: quote.port || '',
+    imoNumber: quote.imoNumber || '',
+    scheduledArrival: quote.scheduledArrival || '',
+    contactEmail: quote.contactEmail || '',
+    agentName: quote.agentName || '',
+    originalFileName: quote.originalFileName,
+    createdAt: quote.createdAt,
+    updatedAt: quote.updatedAt,
+    quoteStatus: quote.quoteStatus || 'OPEN',
+    closedAt: quote.closedAt || null,
+    processingMs: quote.processingMs,
+    items: quote.items,
+    summary: quote.summary
+  };
+}
+
+function normalizeQuoteItems(items = []) {
+  return items.map((item, index) => {
+    const quantity = item.quantity === '' || item.quantity === null || item.quantity === undefined
+      ? null
+      : Number(item.quantity);
+    const safeQuantity = Number.isFinite(quantity) ? quantity : null;
+    const selectedProductKey = String(item.matchedProductKey || item.matchedProduct || '').trim();
+
+    if (!selectedProductKey) {
+      if (item.isUnavailable) {
+        return buildUnavailableQuoteItem(item);
+      }
+
+      return {
+        ...item,
+        lineNumber: index + 1,
+        quantity: safeQuantity,
+        supplyQuantity: Number(item.supplyQuantity || 1),
+        supplierQuantityOverride: parsePositiveNumber(item.supplierQuantityOverride),
+        deliveredQuantity: Number.isFinite(Number(item.deliveredQuantity)) ? Number(item.deliveredQuantity) : null,
+        deliveredUnitType: item.deliveredUnitType || '',
+        supplierProvision: item.supplierProvision || ''
+      };
+    }
+
+    const recalculatedItem = applyManualSelection({
+      ...item,
+      lineNumber: index + 1,
+      quantity: safeQuantity,
+      requestedUnit: item.requestedUnit || ''
+    }, catalog, selectedProductKey);
+
+    if (item.isUnavailable) {
+      return buildUnavailableQuoteItem(item, recalculatedItem);
+    }
+
+    const mergedItem = mergeQuoteItemOverrides(item, recalculatedItem);
+
+    return {
+      ...mergedItem,
+      confidence: selectedProductKey ? 'manual' : recalculatedItem.confidence,
+      matchReason: selectedProductKey
+        ? mergedItem.overrideReasonText
+        : recalculatedItem.matchReason
+    };
+  });
+}
+
+async function loadNormalizedQuote(quoteId) {
+  const quote = await loadQuote(quoteId);
+  const normalizedItems = normalizeQuoteItems(quote.items);
+  const normalizedSummary = summarizeQuote(normalizedItems);
+  const metadataNeedsUpdate = !quote.quoteNumber || !quote.quoteDate || !quote.expiryDate;
+
+  const needsUpdate = JSON.stringify(quote.items) !== JSON.stringify(normalizedItems)
+    || JSON.stringify(quote.summary) !== JSON.stringify(normalizedSummary)
+    || metadataNeedsUpdate;
+
+  if (!needsUpdate) {
+    return quote;
+  }
+
+  return saveQuote({
+    ...quote,
+    items: normalizedItems,
+    summary: normalizedSummary
+  });
+}
+
+app.get('/api/health', (_request, response) => {
+  response.json({ ok: true, priceListPath, catalogSize: catalog.length, fuzzyMatchThreshold });
 });
 
-// — All your existing API routes below —
+app.get('/api/master-products', (_request, response) => {
+  response.json({ products: catalog.map(serializeCatalogItem) });
+});
 
-app.get('/api/health', (_req, res) => res.json({ ok: true, priceListPath, catalogSize: catalog.length, fuzzyMatchThreshold }));
+// Only return quotes for this session
+app.get('/api/quotes/history', async (req, res) => {
+  try {
+    const sessionId = req.cookies.sessionId;
+    const allQuotes = await listQuotes();
+    const filtered = allQuotes.filter(q => q.sessionId && q.sessionId === sessionId);
+    res.json(filtered);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load quote history.' });
+  }
+});
 
-app.get('/api/master-products', (_req, res) => res.json({ products: catalog.map(p => ({
-  catalogKey: p.catalogKey || '',
-  displayName: p.displayName || p.productName,
-  productName: p.productName,
-  unit: p.unit,
-  unitType: p.unitType,
-  approxPieceWeightKg: p.approxPieceWeightKg ?? null,
-  supplyOptions: p.supplyOptions,
-  price: p.price,
-  keywords: p.keywords
-}))}));
+// Only allow access if session matches
+app.get('/api/quotes/:quoteId', async (req, res) => {
+  try {
+    const quote = await loadQuote(req.params.quoteId);
+    if (!quote) {
+      return res.status(404).json({ error: 'Quote not found.' });
+    }
+    if (quote.sessionId && quote.sessionId !== req.cookies.sessionId) {
+      return res.status(403).json({ error: 'Access denied.' });
+    }
+    res.json(quote);
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load quote.' });
+  }
+});
 
-// All other routes remain exactly as your original server.js
-// (e.g., /api/quotes/history, /api/quotes/:quoteId, /api/quotes/process, etc.)
+app.post('/api/quotes/process', upload.single('requisitionFile'), async (request, response, next) => {
+  const startedAt = Date.now();
+  try {
+    if (!request.file) {
+      response.status(400).json({ error: 'A requisition file is required.' });
+      return;
+    }
+    const {
+      clientName,
+      vesselName,
+      port,
+      imoNumber,
+      scheduledArrival,
+      contactEmail,
+      agentName
+    } = request.body;
+    if (!clientName || !vesselName || !imoNumber || !scheduledArrival || !contactEmail || !agentName) {
+      response.status(400).json({ error: 'Client Name, Vessel Name, IMO Number, Scheduled Arrival, Contact Email, and Agent Name are required.' });
+      return;
+    }
+    const requisitionItems = await parseRequisitionFile(request.file.path);
+    const matchedItems = requisitionItems.map((item) => applyQuoteInsight(item, matcher.matchItem(item)));
+    const summary = summarizeQuote(matchedItems);
+    const quote = await saveQuote({
+      clientName,
+      vesselName,
+      port: port || '',
+      imoNumber,
+      scheduledArrival,
+      contactEmail,
+      agentName,
+      originalFileName: request.file.originalname,
+      uploadedFilePath: request.file.path,
+      processingMs: Date.now() - startedAt,
+      quoteStatus: 'OPEN',
+      items: matchedItems,
+      summary,
+      sessionId: request.cookies.sessionId
+    });
+    quoteInsights = await loadQuoteInsights(catalog);
+    response.json(buildQuoteResponse(quote));
+  } catch (error) {
+    next(error);
+  }
+});
 
-// Error handler
-app.use((error, _req, res, _next) => {
+app.put('/api/quotes/:quoteId', async (request, response, next) => {
+  try {
+    const existingQuote = await loadNormalizedQuote(request.params.quoteId);
+    const incomingItems = Array.isArray(request.body.items) ? request.body.items : null;
+
+    if (!incomingItems) {
+      response.status(400).json({ error: 'Updated quote items are required.' });
+      return;
+    }
+
+    if ((existingQuote.quoteStatus || 'OPEN') === 'CLOSED') {
+      response.status(400).json({ error: 'Closed quotations cannot be edited.' });
+      return;
+    }
+
+    const updatedItems = incomingItems.map((item, index) => {
+      const existingItem = existingQuote.items[index] || {};
+      const quantity = item.quantity === '' || item.quantity === null || item.quantity === undefined
+        ? null
+        : Number(item.quantity);
+      const safeQuantity = Number.isFinite(quantity) ? quantity : null;
+      const incomingPrice = Number(item.price || 0);
+      const incomingUnit = String(item.unit || '').trim();
+      const incomingMatchedProductKey = String(item.matchedProductKey || item.matchedProduct || '').trim();
+
+      const draftItem = {
+        ...item,
+        lineNumber: index + 1,
+        quantity: safeQuantity,
+        requestedUnit: item.requestedUnit || existingItem.requestedUnit || ''
+      };
+
+      if (item.isUnavailable) {
+        const unavailableBase = incomingMatchedProductKey
+          ? applyManualSelection(draftItem, catalog, incomingMatchedProductKey)
+          : draftItem;
+        return buildUnavailableQuoteItem(item, unavailableBase);
+      }
+
+      const recalculatedItem = applyManualSelection(draftItem, catalog, incomingMatchedProductKey);
+      const mergedItem = mergeQuoteItemOverrides({
+        ...item,
+        unit: incomingUnit || item.unit || draftItem.requestedUnit || ''
+      }, recalculatedItem);
+
+      return {
+        ...mergedItem,
+        confidence: incomingMatchedProductKey ? 'manual' : recalculatedItem.confidence,
+        matchReason: incomingMatchedProductKey
+          ? mergedItem.overrideReasonText
+          : recalculatedItem.matchReason
+      };
+    });
+
+    const updatedQuote = await saveQuote({
+      ...existingQuote,
+      items: updatedItems,
+      summary: summarizeQuote(updatedItems)
+    });
+
+    quoteInsights = await loadQuoteInsights(catalog);
+    response.json(buildQuoteResponse(updatedQuote));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/quotes/:quoteId/close', async (request, response, next) => {
+  try {
+    const existingQuote = await loadNormalizedQuote(request.params.quoteId);
+
+    if ((existingQuote.quoteStatus || 'OPEN') === 'CLOSED') {
+      response.json(buildQuoteResponse(existingQuote));
+      return;
+    }
+
+    const closedQuote = await saveQuote({
+      ...existingQuote,
+      quoteStatus: 'CLOSED',
+      closedAt: new Date().toISOString()
+    });
+
+    response.json(buildQuoteResponse(closedQuote));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/quotes/:quoteId/export.xlsx', async (request, response, next) => {
+  try {
+    const quote = await loadNormalizedQuote(request.params.quoteId);
+    const buffer = await buildExcelBuffer(quote);
+    const exportFileName = String(quote.quoteNumber || quote.id).replace(/\s+/g, '-');
+    response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('Content-Disposition', `attachment; filename="${exportFileName}.xlsx"`);
+    response.send(Buffer.from(buffer));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/quotes/:quoteId/export.pdf', async (request, response, next) => {
+  try {
+    const quote = await loadNormalizedQuote(request.params.quoteId);
+    const buffer = await buildPdfBuffer(quote);
+    const exportFileName = String(quote.quoteNumber || quote.id).replace(/\s+/g, '-');
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', `attachment; filename="${exportFileName}.pdf"`);
+    response.send(buffer);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.use((error, _request, response, _next) => {
   const message = error instanceof Error ? error.message : 'Unexpected server error.';
-  res.status(500).json({ error: message });
+  response.status(500).json({ error: message });
 });
 
-const port = Number(process.env.PORT || 3000);
+const port = process.env.PORT || 3000;
 app.listen(port, () => {
   console.log(`Athena quote system listening on http://localhost:${port}`);
   console.log(`Using price list: ${priceListPath}`);
