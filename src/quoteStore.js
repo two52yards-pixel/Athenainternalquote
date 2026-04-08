@@ -73,13 +73,11 @@ export async function saveQuote(quote) {
   await ensureQuotesDirectory();
 
   const quoteId = quote.id || `quote-${Date.now()}-${randomUUID().slice(0, 8)}`;
-  // Ensure sessionId is saved if present
   const baseRecord = {
     ...quote,
     id: quoteId,
     quoteStatus: quote.quoteStatus || 'OPEN',
-    updatedAt: new Date().toISOString(),
-    sessionId: quote.sessionId || null
+    updatedAt: new Date().toISOString()
   };
 
   if (!baseRecord.createdAt) {
@@ -121,8 +119,7 @@ export async function listQuotes() {
       updatedAt: quote.updatedAt,
       quoteStatus: quote.quoteStatus || 'OPEN',
       closedAt: quote.closedAt || null,
-      summary: quote.summary,
-      sessionId: quote.sessionId || null
+      summary: quote.summary
     });
   }
 
