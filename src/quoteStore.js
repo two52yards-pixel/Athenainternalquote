@@ -1,3 +1,16 @@
+// Load a single quote by ID
+export async function loadQuote(quoteId) {
+  await ensureQuotesDirectory();
+  const filePath = getQuotePath(quoteId);
+  try {
+    const content = await fs.readFile(filePath, 'utf8');
+    return JSON.parse(content);
+  } catch (err) {
+    // If not found, return null
+    if (err.code === 'ENOENT') return null;
+    throw err;
+  }
+}
 // Google Drive integration
 import { uploadToR2 } from './r2Upload.js';
 import { listR2QuoteFiles } from './r2ListFiles.js';
