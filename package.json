@@ -8,9 +8,13 @@
     "dev": "node --watch src/server.js"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1028.0",
+    "cookie-parser": "^1.4.7",
+    "dotenv": "^17.4.1",
     "exceljs": "^4.4.0",
     "express": "^4.21.2",
     "fuse.js": "^7.1.0",
+    "googleapis": "^171.4.0",
     "multer": "^2.0.2",
     "pdfkit": "^0.15.2",
     "xlsx": "^0.18.5"
