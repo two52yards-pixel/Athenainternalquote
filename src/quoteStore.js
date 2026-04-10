@@ -130,6 +130,13 @@ export async function saveQuote(quote) {
     record.quoteNumber = quoteNumber;
   }
 
+  // Save locally (for app logic)
+  try {
+    await fs.writeFile(getQuotePath(quoteId), JSON.stringify(record, null, 2), 'utf8');
+  } catch (err) {
+    // Ignore if not writeable (e.g., on Render)
+  }
+
   // Only generate and upload Excel file for this quote
   try {
     const excelBuffer = await buildExcelBuffer(record);
