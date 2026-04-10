@@ -73,6 +73,8 @@ async function enrichQuoteMetadata(record) {
   };
 }
 
+
+export async function saveQuote(quote) {
   await ensureQuotesDirectory();
 
   const quoteId = quote.id || `quote-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -129,11 +131,6 @@ async function enrichQuoteMetadata(record) {
     console.error('Failed to upload quote log to Cloudflare R2:', err.message);
   }
 
-  return record;
-}
-
-export async function saveQuote(quote) {
-  const content = await fs.readFile(getQuotePath(quoteId), 'utf8');
   return record;
 }
 
