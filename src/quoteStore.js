@@ -1,5 +1,7 @@
 // Google Drive integration
 import { uploadToR2 } from './r2Upload.js';
+import { listR2QuoteFiles } from './r2ListFiles.js';
+import { getR2File } from './r2GetFile.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -71,7 +73,6 @@ async function enrichQuoteMetadata(record) {
   };
 }
 
-export async function saveQuote(quote) {
   await ensureQuotesDirectory();
 
   const quoteId = quote.id || `quote-${Date.now()}-${randomUUID().slice(0, 8)}`;
@@ -86,7 +87,32 @@ export async function saveQuote(quote) {
     baseRecord.createdAt = baseRecord.updatedAt;
   }
 
-  const record = await enrichQuoteMetadata(baseRecord);
+  // Ensure unique quote number (check R2 for conflicts)
+  let record = await enrichQuoteMetadata(baseRecord);
+  let quoteNumber = record.quoteNumber;
+  let r2Files = await listR2QuoteFiles();
+  let quoteNumberSet = new Set();
+  for (const file of r2Files) {
+    if (file.endsWith('.json')) {
+      try {
+        const fileContent = await getR2File(file);
+        const fileJson = JSON.parse(fileContent);
+        if (fileJson.quoteNumber) {
+          quoteNumberSet.add(fileJson.quoteNumber);
+        }
+      } catch {}
+    }
+  }
+  let seq = 1;
+  const origQuoteNumber = quoteNumber;
+  while (quoteNumberSet.has(quoteNumber)) {
+    // If conflict, append -1, -2, etc. to quote number
+    quoteNumber = `${origQuoteNumber}-${seq}`;
+    seq++;
+  }
+  if (quoteNumber !== record.quoteNumber) {
+    record.quoteNumber = quoteNumber;
+  }
 
   // Save locally (optional, for local dev)
   try {
@@ -95,9 +121,9 @@ export async function saveQuote(quote) {
     // Ignore if not writeable (e.g., on Render)
   }
 
-  // Upload to Cloudflare R2 (always)
+  // Upload to Cloudflare R2 (always, use quote number as filename)
   try {
-    const filename = `${record.id}.json`;
+    const filename = `${record.quoteNumber}.json`;
     await uploadToR2(filename, record);
   } catch (err) {
     console.error('Failed to upload quote log to Cloudflare R2:', err.message);
