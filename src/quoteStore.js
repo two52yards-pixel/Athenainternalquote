@@ -132,9 +132,9 @@ async function enrichQuoteMetadata(record) {
   return record;
 }
 
-export async function loadQuote(quoteId) {
+export async function saveQuote(quote) {
   const content = await fs.readFile(getQuotePath(quoteId), 'utf8');
-  return JSON.parse(content);
+  return record;
 }
 
 export async function listQuotes() {
