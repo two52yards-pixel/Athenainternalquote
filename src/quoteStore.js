@@ -1,5 +1,4 @@
 // Google Drive integration
-import path from 'path';
 import { uploadToR2 } from './r2Upload.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
