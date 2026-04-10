@@ -1,3 +1,6 @@
+// Google Drive integration
+import path from 'path';
+import { uploadToR2 } from './r2Upload.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -86,7 +89,21 @@ export async function saveQuote(quote) {
 
   const record = await enrichQuoteMetadata(baseRecord);
 
-  await fs.writeFile(getQuotePath(quoteId), JSON.stringify(record, null, 2), 'utf8');
+  // Save locally (optional, for local dev)
+  try {
+    await fs.writeFile(getQuotePath(quoteId), JSON.stringify(record, null, 2), 'utf8');
+  } catch (err) {
+    // Ignore if not writeable (e.g., on Render)
+  }
+
+  // Upload to Cloudflare R2 (always)
+  try {
+    const filename = `${record.id}.json`;
+    await uploadToR2(filename, record);
+  } catch (err) {
+    console.error('Failed to upload quote log to Cloudflare R2:', err.message);
+  }
+
   return record;
 }
 
