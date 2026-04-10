@@ -13,6 +13,7 @@ export async function loadQuote(quoteId) {
 }
 // Google Drive integration
 import { uploadToR2 } from './r2Upload.js';
+import { buildExcelBuffer } from './exporters.js';
 import { listR2QuoteFiles } from './r2ListFiles.js';
 import { getR2File } from './r2GetFile.js';
 import fs from 'node:fs/promises';
@@ -129,19 +130,13 @@ export async function saveQuote(quote) {
     record.quoteNumber = quoteNumber;
   }
 
-  // Save locally (optional, for local dev)
+  // Only generate and upload Excel file for this quote
   try {
-    await fs.writeFile(getQuotePath(quoteId), JSON.stringify(record, null, 2), 'utf8');
+    const excelBuffer = await buildExcelBuffer(record);
+    const excelFilename = `${record.quoteNumber}.xlsx`;
+    await uploadToR2(excelFilename, excelBuffer, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
   } catch (err) {
-    // Ignore if not writeable (e.g., on Render)
-  }
-
-  // Upload to Cloudflare R2 (always, use quote number as filename)
-  try {
-    const filename = `${record.quoteNumber}.json`;
-    await uploadToR2(filename, record);
-  } catch (err) {
-    console.error('Failed to upload quote log to Cloudflare R2:', err.message);
+    console.error('Failed to upload quote Excel to Cloudflare R2:', err.message);
   }
 
   return record;

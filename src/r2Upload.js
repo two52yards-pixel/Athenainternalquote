@@ -19,7 +19,7 @@ const s3 = new S3Client({
   },
 });
 
-export async function uploadToR2(filename, content) {
+export async function uploadToR2(filename, content, contentType) {
   // Debug logging for Render troubleshooting
   console.log('[R2 DEBUG] ENV BUCKET:', R2_BUCKET);
   console.log('[R2 DEBUG] ENV ENDPOINT:', R2_ENDPOINT);
@@ -28,11 +28,22 @@ export async function uploadToR2(filename, content) {
   if (!R2_BUCKET) {
     throw new Error('R2_BUCKET environment variable is not set');
   }
+  let body = content;
+  let type = contentType;
+  if (!type) {
+    // Default to JSON if not specified
+    if (typeof content === 'string' || content instanceof Buffer) {
+      type = 'application/octet-stream';
+    } else {
+      body = JSON.stringify(content, null, 2);
+      type = 'application/json';
+    }
+  }
   const command = new PutObjectCommand({
     Bucket: R2_BUCKET,
     Key: filename,
-    Body: typeof content === 'string' ? content : JSON.stringify(content, null, 2),
-    ContentType: "application/json",
+    Body: body,
+    ContentType: type,
   });
   await s3.send(command);
   console.log("Upload successful:", filename);
