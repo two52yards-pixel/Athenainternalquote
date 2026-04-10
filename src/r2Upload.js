@@ -20,6 +20,14 @@ const s3 = new S3Client({
 });
 
 export async function uploadToR2(filename, content) {
+  // Debug logging for Render troubleshooting
+  console.log('[R2 DEBUG] ENV BUCKET:', R2_BUCKET);
+  console.log('[R2 DEBUG] ENV ENDPOINT:', R2_ENDPOINT);
+  console.log('[R2 DEBUG] ENV ACCESS_KEY_ID:', R2_ACCESS_KEY_ID ? 'set' : 'missing');
+  console.log('[R2 DEBUG] ENV SECRET_ACCESS_KEY:', R2_SECRET_ACCESS_KEY ? 'set' : 'missing');
+  if (!R2_BUCKET) {
+    throw new Error('R2_BUCKET environment variable is not set');
+  }
   const command = new PutObjectCommand({
     Bucket: R2_BUCKET,
     Key: filename,
