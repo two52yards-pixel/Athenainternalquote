@@ -5,7 +5,7 @@ import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const orderTemplatePath = path.resolve(__dirname, '..', '..', 'ordertemp', 'Order.xlsx');
+const orderTemplatePath = path.resolve(__dirname, '..','Order.xlsx');
 
 const COMPANY_NAME = 'Athena Marine Supplies Ltd';
 const COMPANY_LINES = [
