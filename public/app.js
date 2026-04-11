@@ -1,3 +1,11 @@
+// Warn user before leaving if there is an unsaved quote
+window.addEventListener('beforeunload', (e) => {
+  if (state.currentQuote && state.currentQuote.quoteStatus !== 'CLOSED') {
+    e.preventDefault();
+    e.returnValue = 'You have an unsaved quote. Please submit (Save Review) before leaving or your changes will be lost.';
+    return 'You have an unsaved quote. Please submit (Save Review) before leaving or your changes will be lost.';
+  }
+});
 const state = {
   currentQuote: null,
   products: []
@@ -782,13 +790,30 @@ closeQuoteViewButton.addEventListener('click', () => {
   closeCurrentQuoteView();
 });
 
-downloadExcelButton.addEventListener('click', () => {
+// Always save the latest quote before download
+async function saveQuoteIfNeeded() {
+  if (state.currentQuote && state.currentQuote.quoteStatus !== 'CLOSED') {
+    try {
+      await requestJson(`/api/quotes/${state.currentQuote.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: state.currentQuote.items })
+      });
+    } catch (e) {
+      // ignore, will be caught on download if error
+    }
+  }
+}
+
+downloadExcelButton.addEventListener('click', async () => {
+  await saveQuoteIfNeeded();
   if (state.currentQuote) {
     window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
   }
 });
 
-downloadPdfButton.addEventListener('click', () => {
+downloadPdfButton.addEventListener('click', async () => {
+  await saveQuoteIfNeeded();
   if (state.currentQuote) {
     window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
   }
