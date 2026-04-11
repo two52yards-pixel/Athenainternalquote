@@ -71,19 +71,30 @@ async function getNextMonthlyQuoteSequence(targetDate, currentQuoteId) {
   const year = String(targetDate.getFullYear()).slice(-2);
   const month = String(targetDate.getMonth() + 1);
 
-  // Check local files
-  for (const fileName of files.filter((file) => file.endsWith('.json'))) {
-    const existingQuote = JSON.parse(await fs.readFile(path.join(quotesDirectory, fileName), 'utf8'));
-    if (existingQuote.id === currentQuoteId) {
-      continue;
-    }
-    const seq = extractSequence(existingQuote.quoteNumber, year, month);
-    if (seq && seq > maxSequence) {
-      maxSequence = seq;
+  // Check local files (.json and .xlsx)
+  for (const fileName of files) {
+    if (fileName.endsWith('.json')) {
+      try {
+        const existingQuote = JSON.parse(await fs.readFile(path.join(quotesDirectory, fileName), 'utf8'));
+        if (existingQuote.id === currentQuoteId) {
+          continue;
+        }
+        const seq = extractSequence(existingQuote.quoteNumber, year, month);
+        if (seq && seq > maxSequence) {
+          maxSequence = seq;
+        }
+      } catch {}
+    } else if (fileName.endsWith('.xlsx')) {
+      // Use filename (remove extension)
+      const baseName = fileName.replace(/\.xlsx$/, '');
+      const seq = extractSequence(baseName, year, month);
+      if (seq && seq > maxSequence) {
+        maxSequence = seq;
+      }
     }
   }
 
-  // Check R2 files for the highest sequence
+  // Check R2 files for the highest sequence (.json and .xlsx)
   try {
     const r2Files = await listR2QuoteFiles();
     for (const file of r2Files) {
@@ -96,6 +107,12 @@ async function getNextMonthlyQuoteSequence(targetDate, currentQuoteId) {
             maxSequence = seq;
           }
         } catch {}
+      } else if (file.endsWith('.xlsx')) {
+        const baseName = file.replace(/\.xlsx$/, '');
+        const seq = extractSequence(baseName, year, month);
+        if (seq && seq > maxSequence) {
+          maxSequence = seq;
+        }
       }
     }
   } catch {}
