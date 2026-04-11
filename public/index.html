@@ -8,11 +8,17 @@
 </head>
 <body>
   <main class="layout">
-    <section class="panel upload-panel">
-      <div>
-        <p class="eyebrow">Internal Use</p>
-        <h1>Athena Marine Quote Desk</h1>
-        <p class="lede">Upload a vessel requisition, review the matched products, and export a draft quote for manual client follow-up.</p>
+    <section class="panel upload-panel premium-upload-panel">
+      <div class="premium-header-flex">
+        <img src="50.png" alt="Athena Marine Logo" class="premium-logo">
+        <div>
+          <p class="eyebrow premium-eyebrow">24/7 Automated Quotation Facility (Out of Office Hours) </p>
+          <h1 class="premium-title">Athena Marine Quote Desk</h1>
+          <p class="lede premium-lede">Upload your vessel requisition, assess matched products, and export a draft quotation for client follow-up.
+</p>
+         
+
+        </div>
       </div>
 
       <form id="quote-form" class="form-grid">
@@ -26,7 +32,7 @@
         </label>
         <label>
           <span>IMO Number</span>
-          <input type="text" name="imoNumber" required>
+          <input type="text" name="imoNumber" required minlength="7" pattern="\\d{7,}" title="Please enter at least 7 digits for the IMO number.">
         </label>
         <label>
           <span>Scheduled Arrival</span>
@@ -50,9 +56,16 @@
         </label>
         <div class="form-actions">
           <button type="submit" id="process-button">Process Requisition</button>
+          <button type="reset" id="clear-form-button" style="background:#fff;color:#bfa14a;border:1.5px solid #e7c77a;">Clear Form</button>
           <a class="sample-link" href="/examples/sample-requisition.csv" download>Download Sample Requisition</a>
         </div>
+        
       </form>
+          <br>    <p class="lede premium-lede">Please note that all generated quotes are indicative guide prices and do not represent final pricing. Each quote will be reviewed by our team and is subject to final approval.
+
+Quotes generated outside of office hours will be prioritised and reviewed as soon as our team returns to the office.
+
+          </p><p class="lede premium-lede">If you have any questions, please send them to info@athenamarine.co.uk, including your quote number in the subject line.</p>
       <p id="status-message" class="status-message"></p>
     </section>
 
@@ -95,8 +108,8 @@
         <h2>Draft Quote Review</h2>
         <p>Adjust product, unit, or price before export if a line needs correction.</p>
       </div>
-      <div class="table-wrapper">
-        <table id="results-table">
+      <div class="table-wrapper premium-table-wrapper">
+        <table id="results-table" class="premium-table">
           <thead>
             <tr>
               <th>Line</th>
@@ -115,6 +128,8 @@
           </thead>
           <tbody></tbody>
         </table>
+        <!-- Mobile card layout for table rows (populated by CSS only, no JS) -->
+        <div class="results-table-cards" id="results-table-cards"></div>
       </div>
     </section>
 
