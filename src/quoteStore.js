@@ -59,7 +59,7 @@ async function getNextMonthlyQuoteSequence(targetDate, currentQuoteId) {
 
   // Helper to extract sequence from quote number
   function extractSequence(quoteNumber, year, month) {
-    // Example: ATH26 - 4050012
+    // Example: ATH26 - 400015
     const regex = new RegExp(`ATH${year} - ${month}(\\d{5})`);
     const match = quoteNumber && quoteNumber.match(regex);
     if (match) {
@@ -77,12 +77,9 @@ async function getNextMonthlyQuoteSequence(targetDate, currentQuoteId) {
     if (existingQuote.id === currentQuoteId) {
       continue;
     }
-    const existingDate = toDate(existingQuote.quoteDate || existingQuote.createdAt || existingQuote.updatedAt);
-    if (isSameMonth(existingDate, targetDate)) {
-      const seq = extractSequence(existingQuote.quoteNumber, year, month);
-      if (seq && seq > maxSequence) {
-        maxSequence = seq;
-      }
+    const seq = extractSequence(existingQuote.quoteNumber, year, month);
+    if (seq && seq > maxSequence) {
+      maxSequence = seq;
     }
   }
 
@@ -94,14 +91,9 @@ async function getNextMonthlyQuoteSequence(targetDate, currentQuoteId) {
         try {
           const fileContent = await getR2File(file);
           const fileJson = JSON.parse(fileContent);
-          if (fileJson.quoteNumber) {
-            const existingDate = toDate(fileJson.quoteDate || fileJson.createdAt || fileJson.updatedAt);
-            if (isSameMonth(existingDate, targetDate)) {
-              const seq = extractSequence(fileJson.quoteNumber, year, month);
-              if (seq && seq > maxSequence) {
-                maxSequence = seq;
-              }
-            }
+          const seq = extractSequence(fileJson.quoteNumber, year, month);
+          if (seq && seq > maxSequence) {
+            maxSequence = seq;
           }
         } catch {}
       }
