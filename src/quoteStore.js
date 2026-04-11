@@ -55,22 +55,60 @@ function getQuotePath(quoteId) {
 async function getNextMonthlyQuoteSequence(targetDate, currentQuoteId) {
   await ensureQuotesDirectory();
   const files = await fs.readdir(quotesDirectory);
-  let count = 0;
+  let maxSequence = 0;
 
+  // Helper to extract sequence from quote number
+  function extractSequence(quoteNumber, year, month) {
+    // Example: ATH26 - 4050012
+    const regex = new RegExp(`ATH${year} - ${month}(\\d{5})`);
+    const match = quoteNumber && quoteNumber.match(regex);
+    if (match) {
+      return parseInt(match[1], 10);
+    }
+    return null;
+  }
+
+  const year = String(targetDate.getFullYear()).slice(-2);
+  const month = String(targetDate.getMonth() + 1);
+
+  // Check local files
   for (const fileName of files.filter((file) => file.endsWith('.json'))) {
     const existingQuote = JSON.parse(await fs.readFile(path.join(quotesDirectory, fileName), 'utf8'));
-
     if (existingQuote.id === currentQuoteId) {
       continue;
     }
-
     const existingDate = toDate(existingQuote.quoteDate || existingQuote.createdAt || existingQuote.updatedAt);
     if (isSameMonth(existingDate, targetDate)) {
-      count += 1;
+      const seq = extractSequence(existingQuote.quoteNumber, year, month);
+      if (seq && seq > maxSequence) {
+        maxSequence = seq;
+      }
     }
   }
 
-  return count + 1;
+  // Check R2 files for the highest sequence
+  try {
+    const r2Files = await listR2QuoteFiles();
+    for (const file of r2Files) {
+      if (file.endsWith('.json')) {
+        try {
+          const fileContent = await getR2File(file);
+          const fileJson = JSON.parse(fileContent);
+          if (fileJson.quoteNumber) {
+            const existingDate = toDate(fileJson.quoteDate || fileJson.createdAt || fileJson.updatedAt);
+            if (isSameMonth(existingDate, targetDate)) {
+              const seq = extractSequence(fileJson.quoteNumber, year, month);
+              if (seq && seq > maxSequence) {
+                maxSequence = seq;
+              }
+            }
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  return maxSequence + 1;
 }
 
 async function enrichQuoteMetadata(record) {
