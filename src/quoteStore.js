@@ -133,22 +133,51 @@ export async function saveQuote(quote) {
     baseRecord.createdAt = baseRecord.updatedAt;
   }
 
-  // Ensure unique quote number (check R2 for conflicts)
+  // Ensure unique quote number (check both local and R2 for conflicts)
   let record = await enrichQuoteMetadata(baseRecord);
   let quoteNumber = record.quoteNumber;
-  let r2Files = await listR2QuoteFiles();
   let quoteNumberSet = new Set();
-  for (const file of r2Files) {
-    if (file.endsWith('.json')) {
+
+
+  // Collect all quote numbers from local files (.json and .xlsx)
+  const localFiles = await fs.readdir(quotesDirectory);
+  for (const fileName of localFiles) {
+    // Check .json for quoteNumber inside, .xlsx by filename
+    if (fileName.endsWith('.json')) {
       try {
-        const fileContent = await getR2File(file);
+        const fileContent = await fs.readFile(path.join(quotesDirectory, fileName), 'utf8');
         const fileJson = JSON.parse(fileContent);
         if (fileJson.quoteNumber) {
           quoteNumberSet.add(fileJson.quoteNumber);
         }
       } catch {}
+    } else if (fileName.endsWith('.xlsx')) {
+      // Use filename (remove extension)
+      const baseName = fileName.replace(/\.xlsx$/, '');
+      quoteNumberSet.add(baseName);
     }
   }
+
+  // Collect all quote numbers from R2 files (.json and .xlsx)
+  try {
+    let r2Files = await listR2QuoteFiles();
+    for (const file of r2Files) {
+      if (file.endsWith('.json')) {
+        try {
+          const fileContent = await getR2File(file);
+          const fileJson = JSON.parse(fileContent);
+          if (fileJson.quoteNumber) {
+            quoteNumberSet.add(fileJson.quoteNumber);
+          }
+        } catch {}
+      } else if (file.endsWith('.xlsx')) {
+        // Use filename (remove extension)
+        const baseName = file.replace(/\.xlsx$/, '');
+        quoteNumberSet.add(baseName);
+      }
+    }
+  } catch {}
+
   let seq = 1;
   const origQuoteNumber = quoteNumber;
   while (quoteNumberSet.has(quoteNumber)) {
