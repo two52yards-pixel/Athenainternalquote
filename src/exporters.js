@@ -9,8 +9,8 @@ const orderTemplatePath = path.resolve(__dirname, '..','Order.xlsx');
 
 const COMPANY_NAME = 'Athena Marine Supplies Ltd';
 const COMPANY_LINES = [
-  '52 Guild Street',
-  'Aberdeen, AB11 6NB',
+  '2 Normount Avenue ',
+  'Newcastle upon Tyne, NE4 8AR',
   'www.athenamarine.co.uk',
   'info@athenamarine.co.uk'
 ];
