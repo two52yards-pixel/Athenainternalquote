@@ -185,7 +185,7 @@ function buildSpecificationText(item) {
 }
 
 function styleWorkbookShell(worksheet) {
-  worksheet.views = [{ state: 'frozen', ySplit: 17 }];
+  worksheet.views = [{  }];
   worksheet.pageSetup = {
     paperSize: 9,
     orientation: 'landscape',
