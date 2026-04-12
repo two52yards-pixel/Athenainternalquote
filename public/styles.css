@@ -86,9 +86,11 @@ body {
 
 
 .layout {
-  width: 80vw;
-  margin: 0;
-  display: grid;
+  width: 100vw;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 0;
   padding: 0;
 }
@@ -102,6 +104,7 @@ body {
   overflow-x: auto;
   backdrop-filter: blur(6px);
   margin-top: 30px;
+  margin-bottom: 32px;
 }
 
 .summary-panel {
@@ -416,6 +419,25 @@ button.is-loading:disabled {
   min-width: 0 !important;
   max-width: none !important;
   white-space: normal;
+  text-align: center;
+  vertical-align: middle;
+}
+
+/* Make specific columns wider */
+.premium-table th:nth-child(1),
+.premium-table td:nth-child(1) { /* Line */
+  min-width: 60px !important;
+  width: 60px !important;
+}
+.premium-table th:nth-child(9),
+.premium-table td:nth-child(9) { /* Total Supplied */
+  min-width: 120px !important;
+  width: 120px !important;
+}
+.premium-table th:nth-child(12),
+.premium-table td:nth-child(12) { /* Action */
+  min-width: 90px !important;
+  width: 90px !important;
 }
 }
 
