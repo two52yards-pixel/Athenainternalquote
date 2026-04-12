@@ -1,3 +1,4 @@
+/* Enhanced Design System for Quote Table */
 :root {
   --bg: #f4f5f7;
   --panel: #ffffff;
@@ -10,10 +11,26 @@
   --warn-bg: #fff4de;
   --ok: #1a6a43;
   --ok-bg: #e8f7ee;
-  --muted-row-bg: #f3f5f7;
+  --warn-strong: #bfa14a;
+  --warn-bg-strong: #fff7d1;
+  --muted-row-bg: #f7f8fa;
+  --muted-row-alt: #f2f4f7;
   --muted-row-text: #6f7884;
   --danger: #8c2f2f;
   --danger-bg: #fbe7e7;
+  --input-bg: #f9fafb;
+  --input-border: #d4dae1;
+  --input-focus: #bfa14a;
+  --table-divider: #ece6d9;
+  --table-header-bg: #f8f6f2;
+  --table-header-text: #bfa14a;
+  --table-header-border: #e7c77a;
+  --badge-success: #1a6a43;
+  --badge-success-bg: #e8f7ee;
+  --badge-warn: #bfa14a;
+  --badge-warn-bg: #fff7d1;
+  --badge-unavail: #6f7884;
+  --badge-unavail-bg: #f3f5f7;
 }
 
 * {
@@ -271,6 +288,7 @@ button.is-loading:disabled {
 }
 
 
+
 .premium-table {
   width: 100%;
   border-collapse: separate;
@@ -278,20 +296,25 @@ button.is-loading:disabled {
   min-width: 1500px;
   max-width: 100vw;
   background: #fff;
-  font-size: 1.04rem;
-  table-layout: auto;
+  font-size: 1.07rem;
+  table-layout: fixed;
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04);
 }
+
 
 
 th,
 td {
-  padding: 12px 14px;
-  border-bottom: 1.5px solid #f0e7d7;
+  padding: 16px 14px 16px 14px;
+  border-bottom: 1.5px solid var(--table-divider);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   vertical-align: middle;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 1.04rem;
 }
 
 th {
@@ -366,87 +389,157 @@ th {
 }
 
 th {
-  font-size: 1.01rem;
+  font-size: 1.09rem;
   text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: #bfa14a;
-  background: #f8f6f2;
-  font-weight: 700;
-  border-bottom: 2.5px solid #e7c77a;
+  letter-spacing: 0.07em;
+  color: var(--table-header-text);
+  background: var(--table-header-bg);
+  font-weight: 800;
+  border-bottom: 2.5px solid var(--table-header-border);
   position: sticky;
   top: 0;
   z-index: 2;
+  text-align: center;
 }
 
-tbody tr:hover {
-  background: #f7f3e7;
 
+tbody tr {
+  background: var(--muted-row-bg);
   transition: background 0.2s, box-shadow 0.2s;
 }
+tbody tr:nth-child(even) {
+  background: var(--muted-row-alt);
+}
+tbody tr:hover {
+  background: #f7f3e7;
+  box-shadow: 0 2px 8px rgba(191,161,74,0.07);
+}
+
 
 .status-pill {
   display: inline-flex;
-  padding: 5px 10px;
+  align-items: center;
+  justify-content: center;
+  min-width: 90px;
+  min-height: 32px;
+  padding: 0 16px;
   border-radius: 999px;
-  font-size: 0.78rem;
+  font-size: 1.01rem;
   font-weight: 700;
+  vertical-align: middle;
+  border: 1.5px solid transparent;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+  margin: 0 auto;
 }
-
 .status-pill.matched {
-  background: var(--ok-bg);
-  color: var(--ok);
+  background: var(--badge-success-bg);
+  color: var(--badge-success);
+  border-color: #b6e2c7;
 }
-
 .status-pill.review {
-  background: var(--warn-bg);
-  color: var(--warn);
+  background: var(--badge-warn-bg);
+  color: var(--badge-warn);
+  border-color: #ffe7a0;
+}
+.status-pill.unavailable {
+  background: var(--badge-unavail-bg);
+  color: var(--badge-unavail);
+  border-color: #e0e4ea;
 }
 
-.status-pill.unavailable {
-  background: #eef1f4;
-  color: #5f6875;
-}
 
 
 .row-input,
 .row-select {
   min-width: 90px;
-  font-size: 0.98em;
+  font-size: 1.05em;
+  height: 44px;
+  border-radius: 8px;
+  border: 1.5px solid var(--input-border);
+  background: var(--input-bg);
+  padding: 0 12px;
+  margin: 0;
+  box-sizing: border-box;
+  transition: border 0.2s, box-shadow 0.2s;
 }
+.row-input:focus,
+.row-select:focus {
+  border-color: var(--input-focus);
+  outline: none;
+  box-shadow: 0 0 0 2px #ffe7a0;
+}
+
 
 
 .quantity-stepper {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  min-width: 110px;
+  gap: 8px;
+  min-width: 120px;
 }
+
 
 
 .quantity-stepper .supplier-quantity-input {
-  min-width: 48px;
+  min-width: 56px;
+  height: 44px;
   text-align: center;
+  font-size: 1.09em;
+  font-weight: 600;
+  border-radius: 8px;
 }
 
+
 .stepper-button {
-  min-width: 34px;
-  min-height: 34px;
+  min-width: 40px;
+  min-height: 40px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 8px;
+  font-size: 1.3em;
+  background: #f2f2f2;
+  color: #003459;
+  border: 1.5px solid #e7c77a;
+  margin: 0 2px;
+  transition: background 0.15s, border 0.15s, color 0.15s;
+}
+.stepper-button:hover {
+  background: #fffbe7;
+  color: #bfa14a;
+  border-color: #bfa14a;
+}
+.stepper-button:active {
+  background: #ffe7a0;
+  color: #003459;
 }
 
+
 .row-action-button {
-  min-width: 42px;
-  min-height: 42px;
+  min-width: 44px;
+  min-height: 44px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.05rem;
+  font-size: 1.15rem;
   line-height: 1;
+  border-radius: 8px;
+  border: 1.5px solid #e7c77a;
+  background: #f2f2f2;
+  color: #003459;
+  margin: 0 2px;
+  transition: background 0.15s, border 0.15s, color 0.15s;
+}
+.row-action-button:hover {
+  background: #fffbe7;
+  color: #bfa14a;
+  border-color: #bfa14a;
+}
+.row-action-button:active {
+  background: #ffe7a0;
+  color: #003459;
 }
 
 .unavailable-button {
@@ -467,22 +560,21 @@ tbody tr:hover {
   background: #d8e4ec;
 }
 
+
 .row-unavailable {
-  background: var(--muted-row-bg);
+  background: #f3f5f7 !important;
 }
-
 .row-unavailable:hover {
-  background: var(--muted-row-bg);
+  background: #f3f5f7 !important;
 }
-
 .row-unavailable td {
   color: var(--muted-row-text);
 }
-
 .row-unavailable .row-input,
 .row-unavailable .row-select {
   background: #f7f8f9;
   color: var(--muted-row-text);
+  border-color: #e0e4ea;
 }
 
 .history-list {
@@ -507,14 +599,23 @@ tbody tr:hover {
 }
 
 
-@media (max-width: 900px) {
+@media (max-width: 1100px) {
   .premium-table {
-    min-width: 700px;
-    font-size: 0.97em;
+    min-width: 900px;
+    font-size: 0.98em;
   }
   th, td {
     padding: 10px 8px;
-    font-size: 0.97em;
+    font-size: 0.98em;
+  }
+  .row-input, .row-select, .quantity-stepper .supplier-quantity-input {
+    height: 38px;
+    font-size: 0.98em;
+  }
+  .stepper-button, .row-action-button {
+    min-width: 34px;
+    min-height: 34px;
+    font-size: 1.08em;
   }
 }
 
@@ -601,6 +702,7 @@ tbody tr:hover {
   .row-input, .row-select {
     min-width: 38px;
     font-size: 0.92em;
+    height: 28px;
   }
   .quantity-stepper {
     min-width: 40px;
@@ -608,5 +710,11 @@ tbody tr:hover {
   }
   .quantity-stepper .supplier-quantity-input {
     min-width: 18px;
+    height: 28px;
+  }
+  .stepper-button, .row-action-button {
+    min-width: 24px;
+    min-height: 24px;
+    font-size: 0.98em;
   }
 }
