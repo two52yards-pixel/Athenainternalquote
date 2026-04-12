@@ -34,7 +34,7 @@ dialog form button[type="reset"]:hover:not(:disabled) {
   color: #bfa14a;
 }
 dialog form button[type="reset"]:active:not(:disabled) {
-  background: #ffe7a0;
+  min-width: 340px; /* ...existing code... */
   color: #003459;
 }
 /* Enhanced Design System for Quote Table */
@@ -42,6 +42,16 @@ dialog form button[type="reset"]:active:not(:disabled) {
   --bg: #f4f5f7;
   --panel: #ffffff;
   --border: #d4dae1;
+
+/* Reduce input/select field sizes in the desk panel */
+.premium-upload-panel input,
+.premium-upload-panel select {
+  min-height: 38px !important;
+  font-size: 1rem !important;
+  padding: 7px 10px !important;
+  border-radius: 8px !important;
+  box-sizing: border-box;
+}
   --text: #132033;
   --muted: #5a6878;
   --accent: #0c5a74;
@@ -162,7 +172,7 @@ body {
 
   position: relative;
   width: 50vw;
-  max-width: 600px;
+  max-width: 750px;
   min-width: 340px;
   margin: 40px auto 32px auto;
   box-shadow: 0 4px 24px rgba(0,52,89,0.07);
