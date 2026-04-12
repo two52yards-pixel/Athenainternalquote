@@ -750,10 +750,10 @@ tbody tr:hover {
 }
 
 .results-panel {
-  width: 100vw !important;
+  width: 96vw !important;
   max-width: 100vw !important;
-  margin-left: calc(-1 * (100vw - 100%) / 2) !important;
-  margin-right: calc(-1 * (100vw - 100%) / 2) !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
   border-radius: 0 !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
