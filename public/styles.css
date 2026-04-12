@@ -299,13 +299,12 @@ button.is-loading:disabled {
 
 .premium-table-wrapper {
   width: 100%;
-  max-width: 125vw;
+  max-width: 100vw;
   margin: 0 auto;
   background: #fff;
   border-radius: 18px;
-
   padding: 0;
-  overflow-x: auto;
+  overflow-x: visible;
 }
 
 
@@ -314,13 +313,11 @@ button.is-loading:disabled {
   width: 100%;
   border-collapse: separate;
   border-spacing: 0;
-  min-width: 0;
-  max-width: 100vw;
   background: #fff;
   font-size: 1.04rem;
-  table-layout: fixed;
+  table-layout: auto;
   border-radius: 18px;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 2px 12px rgba(0,0,0,0.04);
 }
 
@@ -328,14 +325,15 @@ button.is-loading:disabled {
 
 th,
 td {
-  padding: 12px 8px;
+  padding: 12px 16px;
   border-bottom: 1.5px solid var(--table-divider);
   font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
   vertical-align: middle;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
   font-size: 0.98rem;
+  word-break: break-word;
 }
 
 th {
@@ -354,30 +352,7 @@ th {
   line-height: 1.1;
 }
 
-/* Allow controlled wrapping for headers if needed */
-@media (max-width: 1200px) {
-  th {
-    white-space: normal;
-    max-width: 160px;
-    line-height: 1.2;
-    word-break: break-word;
-  }
-}
-
-/* Wider columns for key fields */
-.premium-table th:nth-child(2),
-.premium-table td:nth-child(2), /* Original Item */
-.premium-table th:nth-child(3),
-.premium-table td:nth-child(3), /* Matched Product */
-.premium-table th:nth-child(8),
-.premium-table td:nth-child(8), /* Supplier Unit */
-.premium-table th:nth-child(9),
-.premium-table td:nth-child(9)  /* Total Supplied */
-{
-  min-width: 200px;
-  max-width: 550px;
-  white-space: nowrap;
-}
+/* Remove all min/max width and nowrap for auto-sizing */
 
 /* Right-align numbers for readability */
 .premium-table th:nth-child(5),
@@ -394,29 +369,13 @@ th {
   text-align: right;
 }
 
-/* Tooltip for truncated text */
-.premium-table td[title] {
-  position: relative;
-  cursor: help;
+/* Left-align text fields for readability */
+.premium-table th,
+.premium-table td {
+  text-align: left;
 }
-.premium-table td[title]:hover::after {
-  content: attr(title);
-  position: absolute;
-  left: 0;
-  top: 100%;
-  background: #222;
-  color: #fff;
-  padding: 4px 10px;
-  border-radius: 6px;
-  font-size: 0.98em;
-  white-space: pre-line;
-  z-index: 10;
-  min-width: 120px;
-  max-width: 320px;
-  box-shadow: 0 2px 8px rgba(0,0,0,0.18);
-  margin-top: 2px;
-  pointer-events: none;
-}
+
+/* Remove tooltip/ellipsis for truncated text */
 
 th {
   font-size: 1.09rem;
@@ -429,7 +388,10 @@ th {
   position: sticky;
   top: 0;
   z-index: 2;
-  text-align: center;
+  text-align: left;
+  line-height: 1.25;
+  white-space: normal;
+  word-break: break-word;
 }
 
 
@@ -631,7 +593,6 @@ tbody tr:hover {
 
 @media (max-width: 1100px) {
   .premium-table {
-    min-width: 900px;
     font-size: 0.98em;
   }
   th, td {
