@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Athena Marine Quote Desk</title>
+      <link rel="icon" href="favicon.ico" type="image/x-icon"/>
+	<link rel="shortcut icon" href="favicon.ico" type="image/x-icon">
+	<link rel="apple-touch-icon" href="favicon.ico" sizes="180x180">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -32,7 +35,7 @@
         </label>
         <label>
           <span>IMO Number</span>
-          <input type="text" name="imoNumber" required>
+          <input type="text" name="imoNumber" required minlength="7" pattern="\\d{7,}" title="Please enter at least 7 digits for the IMO number.">
         </label>
         <label>
           <span>Scheduled Arrival</span>
@@ -98,8 +101,17 @@ Quotes generated outside of office hours will be prioritised and reviewed as soo
       <div class="quote-actions">
         <button id="refresh-quote-button" type="button">Refresh Quote</button>
         <button id="save-review-button" type="button">Save Review</button>
-        <button id="download-excel-button" type="button">Download Excel</button>
-        <button id="download-pdf-button" type="button">Download PDF</button>
+        <button id="download-excel-button" type="button" disabled>Download Excel</button>
+        <button id="download-pdf-button" type="button" disabled>Download PDF</button>
+        <dialog id="finalize-confirm-dialog">
+          <form method="dialog">
+            <p style="font-weight:bold;color:#a12a2a">Are you sure you have finished reviewing your quote and are ready to generate the final downloadable quote? This action cannot be undone.</p>
+            <menu>
+              <button value="cancel" type="reset">Cancel</button>
+              <button value="confirm" type="submit" style="background:#bfa14a;color:#fff">Confirm</button>
+            </menu>
+          </form>
+        </dialog>
       </div>
     </section>
 

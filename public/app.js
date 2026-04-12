@@ -456,6 +456,8 @@ function closeCurrentQuoteView() {
   setStatus('Current quote view closed.');
 }
 
+const finalizeConfirmDialog = document.querySelector('#finalize-confirm-dialog');
+
 function renderQuote(quote) {
   state.currentQuote = quote;
   rememberCurrentQuote(quote);
@@ -756,83 +758,79 @@ refreshQuoteButton.addEventListener('click', async () => {
 });
 
 saveReviewButton.addEventListener('click', async () => {
-  if (!state.currentQuote) {
-    return;
-  }
+  if (!state.currentQuote) return;
 
-  setStatus('Saving reviewed quote...');
-  saveReviewButton.disabled = true;
-  setButtonLoading(saveReviewButton, true);
+  // Show confirmation dialog
+  finalizeConfirmDialog.showModal();
 
-  try {
-    const updatedQuote = await requestJson(`/api/quotes/${state.currentQuote.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: state.currentQuote.items })
-    });
+  finalizeConfirmDialog.addEventListener('close', async function handler(e) {
+    finalizeConfirmDialog.removeEventListener('close', handler);
+    if (finalizeConfirmDialog.returnValue !== 'confirm') return;
 
-    renderQuote(updatedQuote);
-    setStatus('Review saved.');
-    await loadHistory();
-  } catch (error) {
-    setStatus(error.message, true);
-  } finally {
-    saveReviewButton.disabled = state.currentQuote?.quoteStatus === 'CLOSED';
-    setButtonLoading(saveReviewButton, false);
-  }
-});
+    setStatus('Finalizing and saving reviewed quote...');
+    saveReviewButton.disabled = true;
+    setButtonLoading(saveReviewButton, true);
 
-closeQuoteViewButton.addEventListener('click', () => {
-  if (!state.currentQuote) {
-    return;
-  }
-
-  closeCurrentQuoteView();
-});
-
-// Always save the latest quote before download
-async function saveQuoteIfNeeded() {
-  if (state.currentQuote && state.currentQuote.quoteStatus !== 'CLOSED') {
     try {
-      await requestJson(`/api/quotes/${state.currentQuote.id}`, {
+      // Mark quote as CLOSED and trigger final generation
+      const updatedQuote = await requestJson(`/api/quotes/${state.currentQuote.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: state.currentQuote.items })
+        body: JSON.stringify({ items: state.currentQuote.items, finalize: true })
       });
-    } catch (e) {
-      // ignore, will be caught on download if error
+
+      renderQuote(updatedQuote);
+      setStatus('Review finalized. You can now download the quote.');
+      await loadHistory();
+      updateDownloadButtons(updatedQuote);
+    } catch (error) {
+      setStatus(error.message, true);
+    } finally {
+      saveReviewButton.disabled = state.currentQuote?.quoteStatus === 'CLOSED';
+      setButtonLoading(saveReviewButton, false);
     }
-  }
-}
+  });
+});
+
+const downloadWarningDialog = document.createElement('dialog');
+downloadWarningDialog.innerHTML = `
+  <form method="dialog">
+    <p style="font-weight:bold;color:#a12a2a">You must save and finalize your review before downloading the quote as PDF or Excel.</p>
+    <menu>
+      <button value="ok" type="submit" style="background:#bfa14a;color:#fff">OK</button>
+    </menu>
+  </form>
+`;
+document.body.appendChild(downloadWarningDialog);
 
 downloadExcelButton.addEventListener('click', async () => {
-  await saveQuoteIfNeeded();
-  if (state.currentQuote) {
-    window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
+  if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
+    downloadWarningDialog.showModal();
+    return;
   }
+  window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
 });
 
 downloadPdfButton.addEventListener('click', async () => {
-  await saveQuoteIfNeeded();
-  if (state.currentQuote) {
-    window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
-  }
-});
-
-historyList.addEventListener('click', async (event) => {
-  const button = event.target.closest('button[data-quote-id]');
-  if (!button) {
+  if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
+    downloadWarningDialog.showModal();
     return;
   }
-
-  try {
-    const quote = await requestJson(`/api/quotes/${button.dataset.quoteId}`);
-    renderQuote(quote);
-    setStatus(`Loaded quote ${quote.id}.`);
-  } catch (error) {
-    setStatus(error.message, true);
-  }
+  window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
 });
+
+function updateDownloadButtons(quote) {
+  const isClosed = quote?.quoteStatus === 'CLOSED';
+  downloadExcelButton.disabled = !isClosed;
+  downloadPdfButton.disabled = !isClosed;
+}
+
+// Patch renderQuote to call updateDownloadButtons
+const originalRenderQuote = renderQuote;
+renderQuote = function(quote) {
+  originalRenderQuote(quote);
+  updateDownloadButtons(quote);
+};
 
 async function bootstrap() {
   try {
