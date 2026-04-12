@@ -107,10 +107,10 @@ body {
 
 .summary-panel,
 .results-panel {
-  width: 85vw !important;
+  width: 100vw !important;
   margin: auto !important;
   margin-right: 0 !important;
-  border-radius: 0 !important;
+  border-radius: 18 !important;
   padding-left: 0 !important;
   padding-right: 0 !important;
   background: #fff !important;
