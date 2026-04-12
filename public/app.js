@@ -486,9 +486,9 @@ function renderQuote(quote) {
         <td><input class="row-input requested-unit" type="text" value="${item.requestedUnit || item.customerUnitType || ''}" ${disabledAttribute}></td>
         <td>
           <div class="quantity-stepper">
-            <button type="button" class="stepper-button supplier-quantity-decrement" aria-label="Decrease supplier quantity" ${disabledAttribute}>-</button>
-            <input class="row-input supplier-quantity-input" type="number" min="0" step="0.01" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
-            <button type="button" class="stepper-button supplier-quantity-increment" aria-label="Increase supplier quantity" ${disabledAttribute}>+</button>
+            <button type="button" class="stepper-button supplier-quantity-decrement" aria-label="Decrease supplier quantity" ${disabledAttribute}>&#8595;</button>
+            <input class="row-input supplier-quantity-input" type="number" min="0" step="1" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
+            <button type="button" class="stepper-button supplier-quantity-increment" aria-label="Increase supplier quantity" ${disabledAttribute}>&#8593;</button>
           </div>
         </td>
         <td class="supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
@@ -728,10 +728,10 @@ resultsTableBody.addEventListener('click', (event) => {
 
   const currentValue = parsePositiveNumber(supplierQuantityInput.value) || 1;
   const nextValue = button.classList.contains('supplier-quantity-decrement')
-    ? Math.max(0.01, currentValue - 1)
+    ? Math.max(1, currentValue - 1)
     : currentValue + 1;
 
-  supplierQuantityInput.value = String(Number(nextValue.toFixed(2)));
+  supplierQuantityInput.value = String(Math.floor(nextValue));
   refreshRow(row, 'supplier-quantity-input');
 });
 
