@@ -1,3 +1,22 @@
+/* Reduce input/select field sizes in the current quote panel */
+.summary-panel input,
+.summary-panel select {
+  min-height: unset !important;
+  height: 32px !important;
+  font-size: 1rem !important;
+  padding: 4px 8px !important;
+  border-radius: 18px !important;
+  box-sizing: border-box;
+  line-height: 1.2 !important;
+  max-width: 100%;
+}
+/* Download confirmation dialog button styling */
+/* Rounded Save Review popup dialog */
+dialog[open] {
+  border-radius: 18px !important;
+  overflow: hidden;
+}
+
 /* Download confirmation dialog button styling */
 dialog form button[type="submit"],
 dialog form button[type="submit"]:not(:disabled) {
@@ -586,24 +605,25 @@ tbody tr:hover {
 
 
 
+
 .row-input,
 .row-select {
-  min-width: 90px;
-  font-size: 1.05em;
-  height: 44px;
-  border-radius: 8px;
-  border: 1.5px solid var(--input-border);
-  background: var(--input-bg);
-  padding: 0 12px;
-  margin: 0;
-  box-sizing: border-box;
-  transition: border 0.2s, box-shadow 0.2s;
+  min-width: 60px !important;
+  height: 32px !important;
+  font-size: 1rem !important;
+  border-radius: 6px !important;
+  border: 1.5px solid var(--input-border) !important;
+  background: var(--input-bg) !important;
+  padding: 4px 8px !important;
+  margin: 0 !important;
+  box-sizing: border-box !important;
+  transition: border 0.2s, box-shadow 0.2s !important;
 }
 .row-input:focus,
 .row-select:focus {
-  border-color: var(--input-focus);
-  outline: none;
-  box-shadow: 0 0 0 2px #ffe7a0;
+  border-color: var(--input-focus) !important;
+  outline: none !important;
+  box-shadow: 0 0 0 2px #ffe7a0 !important;
 }
 
 
