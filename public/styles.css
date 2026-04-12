@@ -46,11 +46,14 @@ dialog form button[type="reset"]:active:not(:disabled) {
 /* Reduce input/select field sizes in the desk panel */
 .premium-upload-panel input,
 .premium-upload-panel select {
-  min-height: 38px !important;
+  min-height: unset !important;
+  height: 32px !important;
   font-size: 1rem !important;
-  padding: 7px 10px !important;
-  border-radius: 8px !important;
+  padding: 4px 8px !important;
+  border-radius: 6px !important;
   box-sizing: border-box;
+  line-height: 1.2 !important;
+  max-width: 100%;
 }
   --text: #132033;
   --muted: #5a6878;
