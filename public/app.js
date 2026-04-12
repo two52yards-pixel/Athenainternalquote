@@ -486,9 +486,7 @@ function renderQuote(quote) {
         <td><input class="row-input requested-unit" type="text" value="${item.requestedUnit || item.customerUnitType || ''}" ${disabledAttribute}></td>
         <td>
           <div class="quantity-stepper">
-            <button type="button" class="stepper-button supplier-quantity-decrement" aria-label="Decrease supplier quantity" ${disabledAttribute}>&#8595;</button>
             <input class="row-input supplier-quantity-input" type="number" min="0" step="1" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
-            <button type="button" class="stepper-button supplier-quantity-increment" aria-label="Increase supplier quantity" ${disabledAttribute}>&#8593;</button>
           </div>
         </td>
         <td class="supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
@@ -792,22 +790,50 @@ saveReviewButton.addEventListener('click', async () => {
   });
 });
 
-downloadExcelButton.addEventListener('click', async () => {
-  if (state.currentQuote && state.currentQuote.quoteStatus === 'CLOSED') {
-    window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
-  }
-});
 
-downloadPdfButton.addEventListener('click', async () => {
-  if (state.currentQuote && state.currentQuote.quoteStatus === 'CLOSED') {
-    window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
+async function confirmAndDownloadQuote(type) {
+  // Only allow download of the last generated (saved) quote
+  const rememberedQuoteId = getRememberedQuoteId();
+  if (!rememberedQuoteId) {
+    setStatus('No saved quote available for download.', true);
+    return;
   }
-});
+  // Show confirmation dialog
+  const confirmed = await new Promise((resolve) => {
+    const dialog = document.createElement('dialog');
+    dialog.innerHTML = `
+      <form method="dialog">
+        <p style="font-weight:bold;color:#bfa14a">Download the last generated quote? This will not include unsaved changes.</p>
+        <menu>
+          <button value="cancel" type="reset">Cancel</button>
+          <button value="confirm" type="submit" style="background:#bfa14a;color:#fff">Download</button>
+        </menu>
+      </form>
+    `;
+    document.body.appendChild(dialog);
+    dialog.addEventListener('close', function handler() {
+      dialog.removeEventListener('close', handler);
+      resolve(dialog.returnValue === 'confirm');
+      document.body.removeChild(dialog);
+    });
+    dialog.showModal();
+  });
+  if (confirmed) {
+    const url = type === 'pdf'
+      ? `/api/quotes/${rememberedQuoteId}/export.pdf`
+      : `/api/quotes/${rememberedQuoteId}/export.xlsx`;
+    window.open(url, '_blank');
+  }
+}
 
-function updateDownloadButtons(quote) {
-  const isClosed = quote?.quoteStatus === 'CLOSED';
-  downloadExcelButton.disabled = !isClosed;
-  downloadPdfButton.disabled = !isClosed;
+downloadExcelButton.addEventListener('click', () => confirmAndDownloadQuote('excel'));
+downloadPdfButton.addEventListener('click', () => confirmAndDownloadQuote('pdf'));
+
+
+// Download buttons are always enabled now
+function updateDownloadButtons() {
+  downloadExcelButton.disabled = false;
+  downloadPdfButton.disabled = false;
 }
 
 // Patch renderQuote to call updateDownloadButtons

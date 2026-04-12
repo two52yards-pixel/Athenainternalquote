@@ -1,3 +1,42 @@
+/* Download confirmation dialog button styling */
+dialog form button[type="submit"],
+dialog form button[type="submit"]:not(:disabled) {
+  border: none;
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-weight: 700;
+  background: var(--accent);
+  color: #f2f2f2;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+dialog form button[type="submit"]:hover:not(:disabled) {
+  background: var(--accent-strong);
+  color: #fff;
+}
+dialog form button[type="submit"]:active:not(:disabled) {
+  background: #003459;
+  color: #fff;
+}
+dialog form button[type="reset"],
+dialog form button[type="reset"]:not(:disabled) {
+  border: 1.5px solid #e7c77a;
+  border-radius: 10px;
+  padding: 11px 16px;
+  font-weight: 700;
+  background: #fff;
+  color: #bfa14a;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, opacity 0.15s;
+}
+dialog form button[type="reset"]:hover:not(:disabled) {
+  background: #fffbe7;
+  color: #bfa14a;
+}
+dialog form button[type="reset"]:active:not(:disabled) {
+  background: #ffe7a0;
+  color: #003459;
+}
 /* Enhanced Design System for Quote Table */
 :root {
   --bg: #f4f5f7;
@@ -67,10 +106,23 @@ body {
   margin-top: 30px;
 }
 
-.summary-panel,
+
+.summary-panel {
+  width: 60vw !important;
+  max-width: 900px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  border-radius: 18px !important;
+  padding-left: 24px !important;
+  padding-right: 24px !important;
+  background: #fff !important;
+  border-left: 1.5px solid #003459 !important;
+  border-right: 1.5px solid #003459 !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04) !important;
+}
+
 .results-panel {
   width: 100vw !important;
-
   margin-left: 0 !important;
   margin-right: 0 !important;
   border-radius: 0 !important;
@@ -80,6 +132,20 @@ body {
   border-left: none !important;
   border-right: none !important;
   box-shadow: none !important;
+}
+
+.panel.premium-upload-panel {
+  width: 60vw !important;
+  max-width: 900px !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  border-radius: 18px !important;
+  padding-left: 24px !important;
+  padding-right: 24px !important;
+  background: #f2f2f2 !important;
+  border-left: 2.5px solid #003459 !important;
+  border-right: 2.5px solid #003459 !important;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.04) !important;
 }
 
 @media (max-width: 1100px) {
@@ -371,8 +437,7 @@ button.is-loading:disabled {
   min-width: 0 !important;
   max-width: none !important;
   white-space: normal;
-}
-}
+
 
 
 
