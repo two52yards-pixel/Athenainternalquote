@@ -748,3 +748,32 @@ tbody tr:hover {
     font-size: 0.98em;
   }
 }
+
+.results-panel {
+  width: 100vw !important;
+  max-width: 100vw !important;
+  margin-left: calc(-1 * (100vw - 100%) / 2) !important;
+  margin-right: calc(-1 * (100vw - 100%) / 2) !important;
+  border-radius: 0 !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+}
+
+.premium-table th {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--table-header-text);
+  background: var(--table-header-bg);
+  font-weight: 800;
+  border-bottom: 2.5px solid var(--table-header-border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  text-align: center;
+  word-break: break-word;
+  line-height: 1.25;
+  white-space: normal;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
