@@ -465,11 +465,8 @@ button.is-loading:disabled {
   white-space: normal;
   text-align: left;
   vertical-align: middle;
-  padding: 2px 6px !important;
-  height: 16px !important;
-  font-size: 0.97rem !important;
-  line-height: 0.8 !important;
-  box-sizing: border-box;
+
+  box-sizing: content-box;
 }
 /* Make specific columns wider */
 .premium-table th:nth-child(1),
@@ -519,6 +516,11 @@ th {
   word-break: break-word;
   line-height: 1.1;
 }
+
+  padding: 2px 6px !important;
+  height: 16px !important;
+  font-size: 0.97rem !important;
+  line-height: 0.8 !important;
 
 /* Remove all min/max width and nowrap for auto-sizing */
 
@@ -578,7 +580,7 @@ tbody tr {
   padding: 2px 6px !important;
   border-radius: 5px !important;
   margin: 0 !important;
-  box-sizing: border-box !important;
+  box-sizing: content-box !important;
 }
 .premium-table .row-input:focus,
 .premium-table .row-select:focus {
@@ -647,7 +649,7 @@ tbody tr:hover {
   background: var(--input-bg) !important;
   padding: 4px 8px !important;
   margin: 0 !important;
-  box-sizing: border-box !important;
+  box-sizing: content-box !important;
   transition: border 0.2s, box-shadow 0.2s !important;
 }
 .row-input:focus,
