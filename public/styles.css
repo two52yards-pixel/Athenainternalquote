@@ -465,10 +465,10 @@ button.is-loading:disabled {
   white-space: normal;
   text-align: left;
   vertical-align: middle;
-  padding: 4px 8px;
-  height: 32px;
-  font-size: 0.97rem;
-  line-height: 1.2;
+  padding: 2px 6px !important;
+  height: 16px !important;
+  font-size: 0.97rem !important;
+  line-height: 0.8 !important;
   box-sizing: border-box;
 }
 /* Make specific columns wider */
@@ -907,7 +907,7 @@ tbody tr:hover {
 }
 
 .premium-table th {
-  font-size: 0.78rem;
+  font-size: 0.78rem !important;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--table-header-text);
@@ -919,8 +919,8 @@ tbody tr:hover {
   z-index: 2;
   text-align: center;
   word-break: break-word;
-  line-height: 1.25;
+  line-height: 1.1 !important;
   white-space: normal;
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 2px !important;
+  padding-bottom: 2px !important;
 }
