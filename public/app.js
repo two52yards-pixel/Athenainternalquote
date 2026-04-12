@@ -823,11 +823,116 @@ function updateDownloadButtons(quote) {
 }
 
 // Patch renderQuote to call updateDownloadButtons
+
+// Patch renderQuote to call updateDownloadButtons
 const originalRenderQuote = renderQuote;
 renderQuote = function(quote) {
   originalRenderQuote(quote);
   updateDownloadButtons(quote);
 };
+
+// Helper: Save quote locally (PUT, but not finalized)
+async function autoSaveQuote() {
+  if (!state.currentQuote || state.currentQuote.quoteStatus === 'CLOSED') return;
+  try {
+    await requestJson(`/api/quotes/${state.currentQuote.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: state.currentQuote.items, finalize: false })
+    });
+    setStatus('Quote auto-saved.');
+  } catch (e) {
+    setStatus('Auto-save failed: ' + e.message, true);
+  }
+}
+
+// Auto-save on any change in the table
+resultsTableBody.addEventListener('input', async (event) => {
+  const row = event.target.closest('tr');
+  if (!row || !state.currentQuote) return;
+  refreshRow(row, event.target.classList[1] || event.target.classList[0] || '');
+  await autoSaveQuote();
+});
+resultsTableBody.addEventListener('change', async (event) => {
+  const row = event.target.closest('tr');
+  if (!row || !state.currentQuote) return;
+  refreshRow(row, event.target.classList[1] || event.target.classList[0] || '');
+  await autoSaveQuote();
+});
+
+// Download logic: only allow if finalized, else show dialog
+downloadExcelButton.addEventListener('click', async () => {
+  if (!state.currentQuote) return;
+  if (state.currentQuote.quoteStatus !== 'CLOSED') {
+    downloadWarningDialog.showModal();
+    return;
+  }
+  window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
+});
+
+downloadPdfButton.addEventListener('click', async () => {
+  if (!state.currentQuote) return;
+  if (state.currentQuote.quoteStatus !== 'CLOSED') {
+    downloadWarningDialog.showModal();
+    return;
+  }
+  window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
+});
+
+// Save Review: finalize and upload to R2, then enable download
+saveReviewButton.addEventListener('click', async () => {
+  if (!state.currentQuote) return;
+  finalizeConfirmDialog.showModal();
+  const handler = async function(e) {
+    finalizeConfirmDialog.removeEventListener('close', handler);
+    if (finalizeConfirmDialog.returnValue !== 'confirm') return;
+    setStatus('Finalizing and saving reviewed quote...');
+    saveReviewButton.disabled = true;
+    setButtonLoading(saveReviewButton, true);
+    try {
+      // Mark quote as CLOSED and trigger final generation/upload
+      const updatedQuote = await requestJson(`/api/quotes/${state.currentQuote.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: state.currentQuote.items, finalize: true })
+      });
+      renderQuote(updatedQuote);
+      setStatus('Review finalized. You can now download the quote.');
+      await loadHistory();
+      updateDownloadButtons(updatedQuote);
+    } catch (error) {
+      setStatus(error.message, true);
+    } finally {
+      saveReviewButton.disabled = state.currentQuote?.quoteStatus === 'CLOSED';
+      setButtonLoading(saveReviewButton, false);
+    }
+  };
+  finalizeConfirmDialog.addEventListener('close', handler);
+});
+
+// Open Quote logic
+historyList.addEventListener('click', async (event) => {
+  const btn = event.target.closest('button[data-quote-id]');
+  if (!btn) return;
+  const quoteId = btn.getAttribute('data-quote-id');
+  try {
+    const quote = await requestJson(`/api/quotes/${quoteId}`);
+    renderQuote(quote);
+    setStatus(`Opened quote ${quote.quoteNumber || quote.id}`);
+  } catch (e) {
+    setStatus('Failed to open quote: ' + e.message, true);
+  }
+});
+
+// Close Quote (X) logic
+closeQuoteViewButton.addEventListener('click', () => {
+  state.currentQuote = null;
+  resultsTableBody.innerHTML = '';
+  summaryPanel.classList.add('hidden');
+  resultsPanel.classList.add('hidden');
+  localStorage.removeItem(LAST_OPEN_QUOTE_STORAGE_KEY);
+  setStatus('Current quote view closed.');
+});
 
 async function bootstrap() {
   try {
