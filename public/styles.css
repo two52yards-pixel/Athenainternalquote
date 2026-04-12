@@ -458,6 +458,7 @@ button.is-loading:disabled {
 
 /* Remove any explicit width/min-width/max-width for table columns */
 .premium-table th,
+.premium-table th,
 .premium-table td {
   width: auto !important;
   min-width: 0 !important;
@@ -465,8 +466,13 @@ button.is-loading:disabled {
   white-space: normal;
   text-align: center;
   vertical-align: middle;
+  padding-top: 4px !important;
+  padding-bottom: 4px !important;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  height: 32px !important;
+  font-size: 0.97rem !important;
 }
-
 /* Make specific columns wider */
 .premium-table th:nth-child(1),
 .premium-table td:nth-child(1) { /* Line */
@@ -562,6 +568,7 @@ th {
 tbody tr {
   background: var(--muted-row-bg);
   transition: background 0.2s, box-shadow 0.2s;
+  height: 36px !important;
 }
 tbody tr:nth-child(even) {
   background: var(--muted-row-alt);
@@ -675,7 +682,7 @@ tbody tr:hover {
 
 .row-action-button {
   min-width: 44px;
-  min-height: 44px;
+  min-height: 32px;
   padding: 0;
   display: inline-flex;
   align-items: center;
