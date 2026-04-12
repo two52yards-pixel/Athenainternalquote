@@ -3,44 +3,58 @@
 .summary-panel select {
   min-height: unset !important;
   height: 32px !important;
+  --table-divider: #ece6d9;
+  --table-header-bg: #f8f6f2;
+  --table-header-text: #bfa14a;
+  --table-header-border: #e7c77a;
+  --muted-row-bg: #f7f8fa;
+  --muted-row-alt: #f2f4f7;
+  --muted-row-text: #6f7884;
+  --danger: #8c2f2f;
+  --danger-bg: #fbe7e7;
   font-size: 1rem !important;
   padding: 4px 8px !important;
   border-radius: 18px !important;
-  box-sizing: border-box;
-  line-height: 1.2 !important;
-  max-width: 100%;
+/* Scope global table cell styles to NOT affect .premium-table */
+table:not(.premium-table) th,
+table:not(.premium-table) td {
+  padding: 12px 16px;
+  border-bottom: 1.5px solid var(--table-divider);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  vertical-align: middle;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
+  font-size: 0.98rem;
+  word-break: break-word;
 }
-/* Download confirmation dialog button styling */
-/* Rounded Save Review popup dialog */
-dialog[open] {
-  border-radius: 18px !important;
-  overflow: hidden;
-}
-
-/* Download confirmation dialog button styling */
 dialog form button[type="submit"],
 dialog form button[type="submit"]:not(:disabled) {
   border: none;
   border-radius: 10px;
-  padding: 11px 16px;
+}
   font-weight: 700;
+/* Remove forced row height */
+tbody tr {
+  background: var(--muted-row-bg);
+  transition: background 0.2s, box-shadow 0.2s;
   background: var(--accent);
   color: #f2f2f2;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s, opacity 0.15s;
-}
-dialog form button[type="submit"]:hover:not(:disabled) {
-  background: var(--accent-strong);
-  color: #fff;
-}
-dialog form button[type="submit"]:active:not(:disabled) {
-  background: #003459;
-  color: #fff;
-}
-dialog form button[type="reset"],
-dialog form button[type="reset"]:not(:disabled) {
-  border: 1.5px solid #e7c77a;
-  border-radius: 10px;
+/* Consolidated th styles for all tables except .premium-table */
+table:not(.premium-table) th {
+  font-size: 0.93rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--table-header-text);
+  background: var(--table-header-bg);
+  font-weight: 800;
+  border-bottom: 2.5px solid var(--table-header-border);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  text-align: center;
+  word-break: break-word;
+  line-height: 1.1;
   padding: 11px 16px;
   font-weight: 700;
   background: #fff;
@@ -49,7 +63,7 @@ dialog form button[type="reset"]:not(:disabled) {
   transition: background 0.15s, color 0.15s, opacity 0.15s;
 }
 dialog form button[type="reset"]:hover:not(:disabled) {
-  background: #fffbe7;
+  table-layout: fixed; /* Ensure columns have fixed layout */
   color: #bfa14a;
 }
 dialog form button[type="reset"]:active:not(:disabled) {
@@ -64,7 +78,6 @@ dialog form button[type="reset"]:active:not(:disabled) {
 
 /* Reduce input/select field sizes in the desk panel */
 .premium-upload-panel input,
-.premium-upload-panel select {
   min-height: unset !important;
   height: 32px !important;
   font-size: 1rem !important;
