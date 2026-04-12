@@ -474,7 +474,7 @@ function renderQuote(quote) {
 
     return `
       <tr data-index="${index}" class="${isUnavailable ? 'row-unavailable' : ''}">
-        <td>${item.lineNumber}</td>
+        <td><button type="button" class="row-action-button unavailable-toggle ${toggleConfig.className}" aria-label="${toggleConfig.title}" title="${toggleConfig.title}">${toggleConfig.symbol}</button></td>
         <td>${escapeHtml(item.originalItem)}</td>
         <td>
           <select class="row-select matched-product" ${disabledAttribute}>
@@ -484,16 +484,11 @@ function renderQuote(quote) {
         <td><span class="status-pill ${statusClass}">${displayStatus(item.status)}</span></td>
         <td><input class="row-input quantity" type="number" min="0" step="0.01" value="${item.quantity ?? ''}" ${disabledAttribute}></td>
         <td><input class="row-input requested-unit" type="text" value="${item.requestedUnit || item.customerUnitType || ''}" ${disabledAttribute}></td>
-        <td>
-          <div class="quantity-stepper">
-            <input class="row-input supplier-quantity-input" type="number" min="0" step="1" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
-          </div>
-        </td>
+        <td><input class="row-input supplier-quantity-input" type="number" min="0" step="1" value="${getSupplierQuantity(item)}" ${disabledAttribute}></td>
         <td class="supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
         <td class="total-supplied">${escapeHtml(getTotalSuppliedText(item))}</td>
         <td><input class="row-input price" type="number" min="0" step="0.01" value="${Number(item.price || 0).toFixed(2)}" ${disabledAttribute}></td>
         <td class="line-total">${formatCurrency(item.total)}</td>
-        <td><button type="button" class="row-action-button unavailable-toggle ${toggleConfig.className}" aria-label="${toggleConfig.title}" title="${toggleConfig.title}">${toggleConfig.symbol}</button></td>
       </tr>
     `;
   }).join('');
@@ -726,10 +721,10 @@ resultsTableBody.addEventListener('click', (event) => {
 
   const currentValue = parsePositiveNumber(supplierQuantityInput.value) || 1;
   const nextValue = button.classList.contains('supplier-quantity-decrement')
-    ? Math.max(1, currentValue - 1)
+    ? Math.max(0.01, currentValue - 1)
     : currentValue + 1;
 
-  supplierQuantityInput.value = String(Math.floor(nextValue));
+  supplierQuantityInput.value = String(Number(nextValue.toFixed(2)));
   refreshRow(row, 'supplier-quantity-input');
 });
 
@@ -790,93 +785,37 @@ saveReviewButton.addEventListener('click', async () => {
   });
 });
 
-
-
-let pendingDownloadType = null;
-
-async function showSaveReviewDialog(type) {
-  return new Promise((resolve) => {
-    const dialog = document.createElement('dialog');
-    dialog.innerHTML = `
-      <form method="dialog" style="position:relative;min-width:340px;">
-        <button type="button" aria-label="Close" style="position:absolute;top:10px;right:10px;font-size:1.3em;background:none;border:none;color:#bfa14a;cursor:pointer;">&times;</button>
-        <p style="font-weight:bold;color:#bfa14a;margin-top:24px;">To download your quote, please save your review first. You can go back and make changes if needed.</p>
-        <menu style="display:flex;justify-content:center;gap:16px;margin-top:24px;">
-          <button value="save" type="submit" style="background:#bfa14a;color:#fff;padding:10px 24px;border-radius:8px;font-weight:700;">Save Review</button>
-        </menu>
-      </form>
-    `;
-    document.body.appendChild(dialog);
-    // X close button
-    dialog.querySelector('button[aria-label="Close"]').onclick = () => {
-      dialog.close('close');
-    };
-    dialog.addEventListener('close', function handler() {
-      dialog.removeEventListener('close', handler);
-      resolve(dialog.returnValue === 'save');
-      document.body.removeChild(dialog);
-    });
-    dialog.showModal();
-  });
-}
-
-async function handleDownloadAfterSave(type) {
-  // Only allow download of the last generated (saved) quote
-  const rememberedQuoteId = getRememberedQuoteId();
-  if (!rememberedQuoteId) {
-    setStatus('No saved quote available for download.', true);
-    return;
-  }
-  const url = type === 'pdf'
-    ? `/api/quotes/${rememberedQuoteId}/export.pdf`
-    : `/api/quotes/${rememberedQuoteId}/export.xlsx`;
-  window.open(url, '_blank');
-}
+const downloadWarningDialog = document.createElement('dialog');
+downloadWarningDialog.innerHTML = `
+  <form method="dialog">
+    <p style="font-weight:bold;color:#a12a2a">You must save and finalize your review before downloading the quote as PDF or Excel.</p>
+    <menu>
+      <button value="ok" type="submit" style="background:#bfa14a;color:#fff">OK</button>
+    </menu>
+  </form>
+`;
+document.body.appendChild(downloadWarningDialog);
 
 downloadExcelButton.addEventListener('click', async () => {
   if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
-    pendingDownloadType = 'excel';
-    const save = await showSaveReviewDialog('excel');
-    if (save) {
-      // Simulate click on Save Review button
-      saveReviewButton.click();
-    }
+    downloadWarningDialog.showModal();
     return;
   }
-  await handleDownloadAfterSave('excel');
+  window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
 });
 
 downloadPdfButton.addEventListener('click', async () => {
   if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
-    pendingDownloadType = 'pdf';
-    const save = await showSaveReviewDialog('pdf');
-    if (save) {
-      // Simulate click on Save Review button
-      saveReviewButton.click();
-    }
+    downloadWarningDialog.showModal();
     return;
   }
-  await handleDownloadAfterSave('pdf');
+  window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
 });
 
-// After review is saved, if a download was pending, trigger it
-const originalSaveReviewHandler = saveReviewButton.onclick;
-saveReviewButton.addEventListener('click', async function handler(e) {
-  if (typeof originalSaveReviewHandler === 'function') originalSaveReviewHandler(e);
-  // Wait for quote to be saved and status to be updated
-  setTimeout(async () => {
-    if (pendingDownloadType && state.currentQuote && state.currentQuote.quoteStatus === 'CLOSED') {
-      await handleDownloadAfterSave(pendingDownloadType);
-      pendingDownloadType = null;
-    }
-  }, 1200);
-});
-
-
-// Download buttons are always enabled now
-function updateDownloadButtons() {
-  downloadExcelButton.disabled = false;
-  downloadPdfButton.disabled = false;
+function updateDownloadButtons(quote) {
+  const isClosed = quote?.quoteStatus === 'CLOSED';
+  downloadExcelButton.disabled = !isClosed;
+  downloadPdfButton.disabled = !isClosed;
 }
 
 // Patch renderQuote to call updateDownloadButtons
@@ -907,44 +846,6 @@ async function bootstrap() {
   } catch (error) {
     setStatus(error.message, true);
   }
-}
-
-// Add event listener for the close (X) button
-if (closeQuoteViewButton) {
-  closeQuoteViewButton.addEventListener('click', () => {
-    closeCurrentQuoteView();
-  });
-}
-
-// Add event listener for the Cancel button in the finalize dialog
-const finalizeCancelButton = document.querySelector('#finalize-confirm-dialog button[value="cancel"]');
-if (finalizeCancelButton) {
-  finalizeCancelButton.addEventListener('click', () => {
-    const dialog = document.getElementById('finalize-confirm-dialog');
-    if (dialog && typeof dialog.close === 'function') {
-      dialog.close('cancel');
-    }
-  });
-}
-
-
-// Event delegation for Open Quote button in history
-if (historyList) {
-  historyList.addEventListener('click', async (event) => {
-    const button = event.target.closest('button[data-quote-id]');
-    if (button) {
-      const quoteId = button.getAttribute('data-quote-id');
-      if (quoteId) {
-        try {
-          const quote = await requestJson(`/api/quotes/${quoteId}`);
-          renderQuote(quote);
-          setStatus(`Loaded quote ${quoteId}.`);
-        } catch (error) {
-          setStatus('Failed to load quote: ' + error.message, true);
-        }
-      }
-    }
-  });
 }
 
 bootstrap();
