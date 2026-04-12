@@ -86,7 +86,7 @@ Quotes generated outside of office hours will be prioritised and reviewed as soo
           <strong id="summary-lines">0</strong>
         </article>
         <article>
-          <span>Review Required</span>
+          <span>Review</span>
           <strong id="summary-review">0</strong>
         </article>
         <article>
@@ -104,11 +104,11 @@ Quotes generated outside of office hours will be prioritised and reviewed as soo
         <button id="download-excel-button" type="button" disabled>Download Excel</button>
         <button id="download-pdf-button" type="button" disabled>Download PDF</button>
         <dialog id="finalize-confirm-dialog">
-          <form method="dialog">
-            <p style="font-weight:bold;color:#a12a2a">Are you sure you have finished reviewing your quote and are ready to generate the final downloadable quote? This action cannot be undone.</p>
+          <form method="dialog" style="position:relative;">
+            <button value="cancel" type="reset" aria-label="Close" style="position:absolute;top:8px;right:8px;background:none;border:none;font-size:1.5em;line-height:1;color:#a12a2a;cursor:pointer;">&times;</button>
+            <p style="font-weight:bold;color:#a12a2a;margin-top:32px;">Are you sure you have finished reviewing your quote and are ready to generate the final downloadable quote? This action cannot be undone.</p>
             <menu>
-              <button value="cancel" type="reset">Cancel</button>
-              <button value="confirm" type="submit" style="background:#bfa14a;color:#fff">Confirm</button>
+              <button value="confirm" type="submit" style="background:#bfa14a;color:#fff">Save Review</button>
             </menu>
           </form>
         </dialog>

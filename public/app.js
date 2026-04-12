@@ -756,7 +756,8 @@ saveReviewButton.addEventListener('click', async () => {
   // Show confirmation dialog
   finalizeConfirmDialog.showModal();
 
-  finalizeConfirmDialog.addEventListener('close', async function handler(e) {
+  // Only add the event listener once per open
+  const handler = async function(e) {
     finalizeConfirmDialog.removeEventListener('close', handler);
     if (finalizeConfirmDialog.returnValue !== 'confirm') return;
 
@@ -773,16 +774,23 @@ saveReviewButton.addEventListener('click', async () => {
       });
 
       renderQuote(updatedQuote);
-      setStatus('Review finalized. You can now download the quote.');
+      setStatus('Review finalized. Downloading the final quote...');
       await loadHistory();
       updateDownloadButtons(updatedQuote);
+
+      // Auto-download Excel and PDF after save
+      if (updatedQuote && updatedQuote.id) {
+        window.open(`/api/quotes/${updatedQuote.id}/export.xlsx`, '_blank');
+        window.open(`/api/quotes/${updatedQuote.id}/export.pdf`, '_blank');
+      }
     } catch (error) {
       setStatus(error.message, true);
     } finally {
       saveReviewButton.disabled = state.currentQuote?.quoteStatus === 'CLOSED';
       setButtonLoading(saveReviewButton, false);
     }
-  });
+  };
+  finalizeConfirmDialog.addEventListener('close', handler);
 });
 
 const downloadWarningDialog = document.createElement('dialog');
@@ -797,25 +805,21 @@ downloadWarningDialog.innerHTML = `
 document.body.appendChild(downloadWarningDialog);
 
 downloadExcelButton.addEventListener('click', async () => {
-  if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
-    downloadWarningDialog.showModal();
-    return;
-  }
+  if (!state.currentQuote) return;
+  // Allow download regardless of status
   window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
 });
 
 downloadPdfButton.addEventListener('click', async () => {
-  if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
-    downloadWarningDialog.showModal();
-    return;
-  }
+  if (!state.currentQuote) return;
+  // Allow download regardless of status
   window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
 });
 
 function updateDownloadButtons(quote) {
-  const isClosed = quote?.quoteStatus === 'CLOSED';
-  downloadExcelButton.disabled = !isClosed;
-  downloadPdfButton.disabled = !isClosed;
+  // Always enable download buttons after review is saved
+  downloadExcelButton.disabled = false;
+  downloadPdfButton.disabled = false;
 }
 
 // Patch renderQuote to call updateDownloadButtons
