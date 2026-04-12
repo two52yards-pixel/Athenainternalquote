@@ -866,4 +866,22 @@ async function bootstrap() {
   }
 }
 
+// Add event listener for the close (X) button
+if (closeQuoteViewButton) {
+  closeQuoteViewButton.addEventListener('click', () => {
+    closeCurrentQuoteView();
+  });
+}
+
+// Add event listener for the Cancel button in the finalize dialog
+const finalizeCancelButton = document.querySelector('#finalize-confirm-dialog button[value="cancel"]');
+if (finalizeCancelButton) {
+  finalizeCancelButton.addEventListener('click', () => {
+    const dialog = document.getElementById('finalize-confirm-dialog');
+    if (dialog && typeof dialog.close === 'function') {
+      dialog.close('cancel');
+    }
+  });
+}
+
 bootstrap();
