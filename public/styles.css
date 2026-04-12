@@ -87,7 +87,7 @@ body {
 
 .layout {
   width: 80vw;
-  margin: 0;
+  margin: auto;
   display: grid;
   gap: 0;
   
@@ -108,7 +108,7 @@ body {
 .summary-panel,
 .results-panel {
   width: 85vw !important;
-  margin-left: 0 !important;
+  margin: auto !important;
   margin-right: 0 !important;
   border-radius: 0 !important;
   padding-left: 0 !important;
