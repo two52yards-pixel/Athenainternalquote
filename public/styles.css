@@ -109,6 +109,7 @@ body {
 .results-panel {
   width: 100vw !important;
   margin: auto !important;
+  margin-top: 1vw
   margin-right: 0 !important;
   border-radius: 18 !important;
   padding-left: 0 !important;
