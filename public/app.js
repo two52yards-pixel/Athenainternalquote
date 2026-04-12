@@ -474,7 +474,7 @@ function renderQuote(quote) {
 
     return `
       <tr data-index="${index}" class="${isUnavailable ? 'row-unavailable' : ''}">
-        <td>${item.lineNumber}</td>
+        <td><button type="button" class="row-action-button unavailable-toggle ${toggleConfig.className}" aria-label="${toggleConfig.title}" title="${toggleConfig.title}">${toggleConfig.symbol}</button></td>
         <td>${escapeHtml(item.originalItem)}</td>
         <td>
           <select class="row-select matched-product" ${disabledAttribute}>
@@ -484,18 +484,11 @@ function renderQuote(quote) {
         <td><span class="status-pill ${statusClass}">${displayStatus(item.status)}</span></td>
         <td><input class="row-input quantity" type="number" min="0" step="0.01" value="${item.quantity ?? ''}" ${disabledAttribute}></td>
         <td><input class="row-input requested-unit" type="text" value="${item.requestedUnit || item.customerUnitType || ''}" ${disabledAttribute}></td>
-        <td>
-          <div class="quantity-stepper">
-            <button type="button" class="stepper-button supplier-quantity-decrement" aria-label="Decrease supplier quantity" ${disabledAttribute}>-</button>
-            <input class="row-input supplier-quantity-input" type="number" min="0" step="0.01" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
-            <button type="button" class="stepper-button supplier-quantity-increment" aria-label="Increase supplier quantity" ${disabledAttribute}>+</button>
-          </div>
-        </td>
+        <td><input class="row-input supplier-quantity-input" type="number" min="0" step="0.01" value="${getSupplierQuantity(item)}" ${disabledAttribute}></td>
         <td class="supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
         <td class="total-supplied">${escapeHtml(getTotalSuppliedText(item))}</td>
         <td><input class="row-input price" type="number" min="0" step="0.01" value="${Number(item.price || 0).toFixed(2)}" ${disabledAttribute}></td>
         <td class="line-total">${formatCurrency(item.total)}</td>
-        <td><button type="button" class="row-action-button unavailable-toggle ${toggleConfig.className}" aria-label="${toggleConfig.title}" title="${toggleConfig.title}">${toggleConfig.symbol}</button></td>
       </tr>
     `;
   }).join('');
