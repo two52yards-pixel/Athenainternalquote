@@ -358,10 +358,20 @@ button.is-loading:disabled {
   border-spacing: 0;
   background: #fff;
   font-size: 1.04rem;
-  table-layout: auto;
+  table-layout: auto; /* Ensure columns auto-size to fit content */
   border-radius: 18px;
   overflow: visible;
   box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+}
+
+/* Remove any explicit width/min-width/max-width for table columns */
+.premium-table th,
+.premium-table td {
+  width: auto !important;
+  min-width: 0 !important;
+  max-width: none !important;
+  white-space: normal;
+}
 }
 
 
