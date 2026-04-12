@@ -791,43 +791,86 @@ saveReviewButton.addEventListener('click', async () => {
 });
 
 
-async function confirmAndDownloadQuote(type) {
+
+let pendingDownloadType = null;
+
+async function showSaveReviewDialog(type) {
+  return new Promise((resolve) => {
+    const dialog = document.createElement('dialog');
+    dialog.innerHTML = `
+      <form method="dialog" style="position:relative;min-width:340px;">
+        <button type="button" aria-label="Close" style="position:absolute;top:10px;right:10px;font-size:1.3em;background:none;border:none;color:#bfa14a;cursor:pointer;">&times;</button>
+        <p style="font-weight:bold;color:#bfa14a;margin-top:24px;">To download your quote, please save your review first. You can go back and make changes if needed.</p>
+        <menu style="display:flex;justify-content:center;gap:16px;margin-top:24px;">
+          <button value="save" type="submit" style="background:#bfa14a;color:#fff;padding:10px 24px;border-radius:8px;font-weight:700;">Save Review</button>
+        </menu>
+      </form>
+    `;
+    document.body.appendChild(dialog);
+    // X close button
+    dialog.querySelector('button[aria-label="Close"]').onclick = () => {
+      dialog.close('close');
+    };
+    dialog.addEventListener('close', function handler() {
+      dialog.removeEventListener('close', handler);
+      resolve(dialog.returnValue === 'save');
+      document.body.removeChild(dialog);
+    });
+    dialog.showModal();
+  });
+}
+
+async function handleDownloadAfterSave(type) {
   // Only allow download of the last generated (saved) quote
   const rememberedQuoteId = getRememberedQuoteId();
   if (!rememberedQuoteId) {
     setStatus('No saved quote available for download.', true);
     return;
   }
-  // Show confirmation dialog
-  const confirmed = await new Promise((resolve) => {
-    const dialog = document.createElement('dialog');
-    dialog.innerHTML = `
-      <form method="dialog">
-        <p style="font-weight:bold;color:#bfa14a">Download the last generated quote? This will not include unsaved changes.</p>
-        <menu>
-          <button value="cancel" type="reset">Cancel</button>
-          <button value="confirm" type="submit" style="background:#bfa14a;color:#fff">Download</button>
-        </menu>
-      </form>
-    `;
-    document.body.appendChild(dialog);
-    dialog.addEventListener('close', function handler() {
-      dialog.removeEventListener('close', handler);
-      resolve(dialog.returnValue === 'confirm');
-      document.body.removeChild(dialog);
-    });
-    dialog.showModal();
-  });
-  if (confirmed) {
-    const url = type === 'pdf'
-      ? `/api/quotes/${rememberedQuoteId}/export.pdf`
-      : `/api/quotes/${rememberedQuoteId}/export.xlsx`;
-    window.open(url, '_blank');
-  }
+  const url = type === 'pdf'
+    ? `/api/quotes/${rememberedQuoteId}/export.pdf`
+    : `/api/quotes/${rememberedQuoteId}/export.xlsx`;
+  window.open(url, '_blank');
 }
 
-downloadExcelButton.addEventListener('click', () => confirmAndDownloadQuote('excel'));
-downloadPdfButton.addEventListener('click', () => confirmAndDownloadQuote('pdf'));
+downloadExcelButton.addEventListener('click', async () => {
+  if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
+    pendingDownloadType = 'excel';
+    const save = await showSaveReviewDialog('excel');
+    if (save) {
+      // Simulate click on Save Review button
+      saveReviewButton.click();
+    }
+    return;
+  }
+  await handleDownloadAfterSave('excel');
+});
+
+downloadPdfButton.addEventListener('click', async () => {
+  if (!state.currentQuote || state.currentQuote.quoteStatus !== 'CLOSED') {
+    pendingDownloadType = 'pdf';
+    const save = await showSaveReviewDialog('pdf');
+    if (save) {
+      // Simulate click on Save Review button
+      saveReviewButton.click();
+    }
+    return;
+  }
+  await handleDownloadAfterSave('pdf');
+});
+
+// After review is saved, if a download was pending, trigger it
+const originalSaveReviewHandler = saveReviewButton.onclick;
+saveReviewButton.addEventListener('click', async function handler(e) {
+  if (typeof originalSaveReviewHandler === 'function') originalSaveReviewHandler(e);
+  // Wait for quote to be saved and status to be updated
+  setTimeout(async () => {
+    if (pendingDownloadType && state.currentQuote && state.currentQuote.quoteStatus === 'CLOSED') {
+      await handleDownloadAfterSave(pendingDownloadType);
+      pendingDownloadType = null;
+    }
+  }, 1200);
+});
 
 
 // Download buttons are always enabled now
@@ -880,6 +923,26 @@ if (finalizeCancelButton) {
     const dialog = document.getElementById('finalize-confirm-dialog');
     if (dialog && typeof dialog.close === 'function') {
       dialog.close('cancel');
+    }
+  });
+}
+
+
+// Event delegation for Open Quote button in history
+if (historyList) {
+  historyList.addEventListener('click', async (event) => {
+    const button = event.target.closest('button[data-quote-id]');
+    if (button) {
+      const quoteId = button.getAttribute('data-quote-id');
+      if (quoteId) {
+        try {
+          const quote = await requestJson(`/api/quotes/${quoteId}`);
+          renderQuote(quote);
+          setStatus(`Loaded quote ${quoteId}.`);
+        } catch (error) {
+          setStatus('Failed to load quote: ' + error.message, true);
+        }
+      }
     }
   });
 }
