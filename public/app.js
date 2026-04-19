@@ -75,83 +75,91 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
-function formatCurrency(value) {
-  return `£${Number(value || 0).toFixed(2)}`;
-}
-
-function formatValue(value) {
-  if (!Number.isFinite(value)) {
-    return '';
-  }
-
-  return Number.isInteger(value) ? String(value) : String(Number(value.toFixed(3)));
-}
-
-function normalizeUnitType(value) {
-  const normalized = String(value || '').trim().toLowerCase();
-
-  if (/(^|\s)(kg|kgs|kilogram|kilograms|g|gram|grams)(\s|$)/.test(normalized)) {
-    return 'kg';
-  }
-
-  if (/(^|\s)(l|lt|ltr|liter|liters|litre|litres|ml)(\s|$)/.test(normalized)) {
-    return 'liter';
-  }
-
-  if (/(^|\s)(pc|pcs|piece|pieces|ea|each|unit|units)(\s|$)/.test(normalized)) {
-    return 'pcs';
-  }
-
-  if (/(^|\s)(pack|packs|packet|packets|pkt|pkts|carton|cartons|case|cases|box|boxes|tray|trays|bag|bags|bottle|bottles|roll|rolls|tin|tins|jar|jars)(\s|$)/.test(normalized)) {
-    return 'pack';
-  }
-
-  return '';
-}
-
-function toBaseQuantity(quantity, rawUnit) {
-  const numericQuantity = Number(quantity);
-  if (!Number.isFinite(numericQuantity)) {
-    return null;
-  }
-
-  const normalized = String(rawUnit || '').trim().toLowerCase();
-  const unitType = normalizeUnitType(normalized);
-
-  if (unitType === 'kg' && /(^|\s)(g|gram|grams)(\s|$)/.test(normalized)) {
-    return numericQuantity / 1000;
-  }
-
-  if (unitType === 'liter' && /(^|\s)(ml)(\s|$)/.test(normalized)) {
-    return numericQuantity / 1000;
-  }
-
-  return numericQuantity;
-}
-
-function extractRequestedPackQuantity(quantity, rawRequestedUnit) {
-  const match = String(rawRequestedUnit ?? '').match(/(tray|trays|box|boxes|carton|cartons|case|cases|pack|packs|packet|packets)\s*(?:of)?\s*(\d+(?:\.\d+)?)(?:\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units))?/i);
-  if (!match || !Number.isFinite(quantity) || quantity <= 0) {
-    return null;
-  }
-
-  const innerAmount = Number(match[2]);
-  const rawUnit = match[3] || 'pcs';
-  const converted = toBaseQuantity(quantity * innerAmount, rawUnit);
-
-  return {
-    customerQuantity: converted,
-    customerUnitType: normalizeUnitType(rawUnit),
-    rawRequestedUnit: String(rawRequestedUnit || '').trim()
   };
-}
-
-function resolveCustomerRequest(quantity, requestedUnit) {
   const structuredPackQuantity = extractRequestedPackQuantity(quantity, requestedUnit);
-  if (structuredPackQuantity) {
-    return structuredPackQuantity;
+
+async function handleFinalExport(fileType) {
+  if (!state.currentQuote) return;
+  setSaveStatus('saving');
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  localSaveReview();
+  setSaveStatus('saved');
+
+  // 1. Get next quote number
+  let quoteNumber = null;
+  try {
+    const res = await fetch('/api/quotes/next-number');
+    if (!res.ok) throw new Error('Failed to get quote number');
+    const data = await res.json();
+    quoteNumber = data.quoteNumber;
+  } catch (e) {
+    setStatus('Failed to get quote number from R2', true);
+    return;
   }
 
+  // 2. Generate file using new export-final endpoint
+  let fileBlob, fileName;
+  try {
+    const exportRes = await fetch('/api/quotes/export-final', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        quoteData: state.currentQuote,
+        fileType,
+        quoteNumber
+      })
+    });
+    if (!exportRes.ok) throw new Error('File generation failed');
+    fileBlob = await exportRes.blob();
+    fileName = `${quoteNumber}.${fileType}`;
+  } catch (e) {
+    setStatus('File generation failed', true);
+    return;
+  }
+
+  // 3. Download file to user device
+  try {
+    const url = URL.createObjectURL(fileBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  } catch (e) {
+    setStatus('Download failed', true);
+    return;
+  }
+
+  // 4. Upload same file to R2
+  try {
+    const formData = new FormData();
+    formData.append('file', fileBlob, fileName);
+    formData.append('quoteNumber', quoteNumber);
+    formData.append('fileType', fileType);
+    formData.append('timestamp', new Date().toISOString());
+    await fetch('/api/quotes/upload-final', {
+      method: 'POST',
+      body: formData
+    });
+  } catch (e) {
+    setStatus('R2 upload failed (download succeeded)', true);
+    return;
+  }
+
+  setStatus(`Exported and uploaded as ${quoteNumber}.`);
+}
+
+  }
+  handleFinalExport('xlsx');
+});
+
+
+  handleFinalExport('pdf');
+});
   const customerUnitType = normalizeUnitType(requestedUnit);
   const customerQuantity = Number.isFinite(quantity) && quantity > 0
     ? (customerUnitType ? toBaseQuantity(quantity, requestedUnit) : Number(quantity))
@@ -815,11 +823,8 @@ closeQuoteViewButton.addEventListener('click', () => {
 });
 
 async function confirmAndExport(fileType) {
-  if (!state.currentQuote) return;
-  // Confirmation dialog
-  const confirmed = window.confirm('Do you want to save your latest changes before downloading?');
-  if (!confirmed) return;
 
+  if (!state.currentQuote) return;
   // 1. Save Review logic (local-only sync)
   setSaveStatus('saving');
   await new Promise((resolve) => setTimeout(resolve, 400)); // debounce match
