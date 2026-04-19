@@ -1,0 +1,358 @@
+/* Status-based row coloring */
+.premium-table tbody tr.status-matched {
+  background: #e6f7e6 !important;
+}
+.premium-table tbody tr.status-other {
+  background: #fffbe6 !important;
+}
+/* Highlight rows that need review or manual check */
+.premium-table tbody tr.row-review,
+.premium-table tbody tr.row-manual {
+  background: #fffbe6 !important;
+}
+/* ================================
+   ATHENA MARINE PREMIUM DASHBOARD UI
+================================ */
+
+:root {
+  --navy: #0b1f3a;
+  --navy-soft: #142b4d;
+  --gold: #c8a96a;
+  --gold-soft: #e7c77a;
+
+  --bg: #f4f7fb;
+  --panel: #ffffff;
+
+  --text: #1a1a1a;
+  --muted: #6b7280;
+
+  --border: rgba(0,0,0,0.06);
+  --shadow: 0 20px 40px rgba(0,0,0,0.06);
+}
+
+/* ================================
+   BASE
+================================ */
+body {
+  margin: 0;
+  font-family: Inter, system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.layout {
+  max-width: 1400px;
+  margin: 40px auto;
+  padding: 0 24px;
+  display: grid;
+  gap: 28px;
+}
+
+/* ================================
+   MAIN PANELS
+================================ */
+.panel {
+  background: var(--panel);
+  border-radius: 18px;
+  padding: 28px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+/* ================================
+   SUMMARY HEADER
+================================ */
+.section-header h2,
+.quote-summary-header h2 {
+  font-size: 22px;
+  color: var(--navy);
+  margin: 0;
+  font-weight: 600;
+}
+
+.section-header p,
+.quote-summary-header p {
+  font-size: 14px;
+  color: var(--muted);
+  margin-top: 6px;
+}
+
+/* ================================
+   SUMMARY GRID
+================================ */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin-top: 16px;
+}
+
+.summary-grid article {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(200,169,106,0.15);
+  border-radius: 14px;
+  padding: 18px;
+  box-shadow: 0 8px 24px rgba(11,31,58,0.05);
+}
+
+.summary-grid span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.summary-grid strong {
+  font-size: 22px;
+  color: var(--navy);
+}
+
+/* ================================
+   💼 PREMIUM ACTION CONTROL PANEL (NEW)
+   BIG UPGRADE FOR BUTTON AREA
+================================ */
+.quote-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+
+  margin-top: 18px;
+  padding: 22px;
+
+  background: linear-gradient(135deg, #0b1f3a 0%, #142b4d 100%);
+  border-radius: 18px;
+
+  box-shadow: 0 25px 60px rgba(0,0,0,0.18);
+  border: 1px solid rgba(200,169,106,0.2);
+}
+
+/* ================================
+   🔘 PREMIUM BUTTON STYLE SYSTEM
+================================ */
+.quote-actions button {
+  padding: 14px 20px;
+  border-radius: 12px;
+  font-weight: 700;
+  font-size: 14px;
+
+  border: none;
+  cursor: pointer;
+  transition: all 0.25s ease;
+
+  letter-spacing: 0.02em;
+}
+
+/* PRIMARY ACTION (Open / Refresh Quote) */
+#refresh-quote-button {
+  background: linear-gradient(90deg, #c8a96a, #e7c77a);
+  color: #0b1f3a;
+  box-shadow: 0 10px 20px rgba(200,169,106,0.25);
+}
+
+/* SECONDARY ACTION (Save Review) */
+#save-review-button {
+  background: rgba(255,255,255,0.1);
+  color: #ffffff;
+  border: 1px solid rgba(255,255,255,0.25);
+}
+
+/* EXPORT ACTIONS (locked/disabled style) */
+#download-excel-button,
+#download-pdf-button {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.5);
+  cursor: not-allowed;
+  border: 1px solid rgba(255,255,255,0.08);
+}
+
+/* HOVER EFFECTS */
+.quote-actions button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  filter: brightness(1.05);
+}
+
+/* ================================
+   TABLE DESIGN (MATCH FORM UI)
+================================ */
+
+/* --- TABLE MAKEOVER: SOLID COLORS, MATCH APP, NO GRADIENTS --- */
+.premium-table-wrapper {
+  overflow-x: auto;
+  margin-top: 10px;
+}
+
+.premium-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 1200px;
+  background: var(--panel);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 4px 24px rgba(11,31,58,0.04);
+  border: 1px solid var(--border);
+}
+
+.premium-table thead th {
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--navy);
+  background: #f4f7fb;
+  padding: 16px;
+  border-bottom: 2px solid var(--gold);
+  font-weight: 700;
+}
+
+.premium-table tbody td {
+  padding: 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--panel);
+  vertical-align: middle;
+}
+
+.premium-table tbody tr {
+  transition: background 0.2s;
+}
+
+.premium-table tbody tr:hover {
+  background: #f0f4fa;
+}
+
+.premium-table tbody tr td:first-child {
+  text-align: center;
+}
+
+.premium-table input[type="text"],
+.premium-table input[type="number"],
+.premium-table input,
+.premium-table select {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafc;
+  color: var(--text);
+  transition: border 0.2s;
+  outline: none;
+}
+.premium-table input:focus,
+.premium-table select:focus {
+  border-color: var(--gold);
+}
+
+.premium-table .toggle {
+  background: var(--navy);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.premium-table .toggle:hover {
+  background: var(--gold);
+  color: var(--navy);
+}
+
+/* ================================
+   🗂️ RECENT QUOTES BIG PANEL (NEW)
+   MOTHER CONTAINER BACKGROUND
+================================ */
+.history-panel {
+  background: linear-gradient(180deg, #ffffff 0%, #f8fafc 100%);
+  border: 1px solid rgba(200,169,106,0.18);
+  box-shadow: 0 30px 80px rgba(11,31,58,0.08);
+}
+
+/* list inside stays clean */
+.history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* individual items now minimal */
+.history-item {
+  padding: 14px;
+  border-radius: 12px;
+  background: white;
+  border: 1px solid rgba(0,0,0,0.05);
+}
+
+/* ================================
+   CLOSE BUTTON
+================================ */
+.close-view-button {
+  background: #0b1f3a;
+  color: white;
+  border-radius: 12px;
+  padding: 10px 14px;
+  border: none;
+  cursor: pointer;
+  font-weight: 700;
+  transition: 0.2s;
+}
+
+.close-view-button:hover {
+  background: #c8a96a;
+  color: #0b1f3a;
+}
+
+/* ================================
+   STATUS PILLS
+================================ */
+.status-pill {
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-pill.matched {
+  background: rgba(34,197,94,0.1);
+  color: #16a34a;
+}
+
+.status-pill.review {
+  background: rgba(251,191,36,0.15);
+  color: #b45309;
+}
+
+.status-pill.unavailable {
+  background: #f3f4f6;
+  color: #6b7280;
+}
+
+/* ================================
+   RESPONSIVE
+================================ */
+@media (max-width: 900px) {
+  .summary-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .quote-actions {
+    flex-direction: column;
+  }
+}
+
+/* ================================
+   OPEN QUOTE BUTTON (HISTORY PANEL)
+================================ */
+.history-item button[data-quote-id] {
+  background: #003459;
+  color: #f2f2f2;
+  font-weight: 700;
+  border: none;
+  border-radius: 8px;
+  padding: 10px 20px;
+  margin-top: 10px;
+  font-size: 15px;
+  box-shadow: 0 2px 8px rgba(11,31,58,0.08);
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s, transform 0.1s;
+}
+

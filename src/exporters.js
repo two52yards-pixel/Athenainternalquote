@@ -5,7 +5,7 @@ import PDFDocument from 'pdfkit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const orderTemplatePath = path.resolve(__dirname, '..', '..', 'ordertemp', 'Order.xlsx');
+const orderTemplatePath = path.resolve(__dirname, '..', 'Order.xlsx');
 
 const COMPANY_NAME = 'Athena Marine Supplies Ltd';
 const COMPANY_LINES = [
@@ -185,7 +185,7 @@ function buildSpecificationText(item) {
 }
 
 function styleWorkbookShell(worksheet) {
-  worksheet.views = [{ state: 'frozen', ySplit: 17 }];
+  worksheet.views = [];
   worksheet.pageSetup = {
     paperSize: 9,
     orientation: 'landscape',
@@ -436,6 +436,7 @@ export async function buildExcelBuffer(quote) {
     worksheet.getCell(`F${rowNumber}`).value = item.unit || '';
     worksheet.getCell(`G${rowNumber}`).value = Number(item.price || 0);
     worksheet.getCell(`H${rowNumber}`).value = Number(item.total || 0);
+    // Always restyle the first product line to match the rest
     styleItemRow(worksheet, rowNumber, item);
   }
 

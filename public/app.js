@@ -9,6 +9,55 @@ const resultsPanel = document.querySelector('#results-panel');
 const summaryPanel = document.querySelector('#summary-panel');
 const resultsTableBody = document.querySelector('#results-table tbody');
 const saveReviewButton = document.querySelector('#save-review-button');
+// --- Save Status Indicator ---
+const saveStatusIndicator = document.createElement('div');
+saveStatusIndicator.id = 'save-status-indicator';
+saveStatusIndicator.style.marginLeft = '1em';
+saveStatusIndicator.style.display = 'inline-block';
+saveReviewButton.parentNode.insertBefore(saveStatusIndicator, saveReviewButton.nextSibling);
+
+let saveStatus = 'idle'; // 'saving', 'saved'
+let saveStatusTimeout = null;
+let lastSaveTimestamp = null;
+
+function setSaveStatus(status) {
+  saveStatus = status;
+  if (saveStatusTimeout) clearTimeout(saveStatusTimeout);
+  if (status === 'saving') {
+    saveStatusIndicator.textContent = 'Saving...';
+  } else if (status === 'saved') {
+    const now = new Date();
+    lastSaveTimestamp = now;
+    saveStatusIndicator.textContent = `All changes saved at ${now.toLocaleTimeString()}`;
+    // Hide after 5s (optional)
+    saveStatusTimeout = setTimeout(() => {
+      if (saveStatus === 'saved') saveStatusIndicator.textContent = '';
+    }, 5000);
+  } else {
+    saveStatusIndicator.textContent = '';
+  }
+}
+
+// Local-only save logic (mirrors Save Review, but does NOT call backend)
+function localSaveReview() {
+  if (!state.currentQuote) return;
+  try {
+    sessionStorage.setItem('athena:current-quote', JSON.stringify(state.currentQuote));
+    setSaveStatus('saved');
+  } catch (e) {
+    setSaveStatus('saved');
+  }
+}
+
+// Debounced auto-save
+let autoSaveTimer = null;
+function triggerAutoSave() {
+  setSaveStatus('saving');
+  if (autoSaveTimer) clearTimeout(autoSaveTimer);
+  autoSaveTimer = setTimeout(() => {
+    localSaveReview();
+  }, 400); // 400ms debounce
+}
 const refreshQuoteButton = document.querySelector('#refresh-quote-button');
 const closeQuoteViewButton = document.querySelector('#close-quote-view-button');
 const downloadExcelButton = document.querySelector('#download-excel-button');
@@ -473,17 +522,13 @@ function renderQuote(quote) {
         </td>
         <td><span class="status-pill ${statusClass}">${displayStatus(item.status)}</span></td>
         <td><input class="row-input quantity" type="number" min="0" step="0.01" value="${item.quantity ?? ''}" ${disabledAttribute}></td>
-        <td><input class="row-input requested-unit" type="text" value="${item.requestedUnit || item.customerUnitType || ''}" ${disabledAttribute}></td>
+        <td class="requested-unit-display">${escapeHtml(item.requestedUnit || item.customerUnitType || '')}</td>
         <td>
-          <div class="quantity-stepper">
-            <button type="button" class="stepper-button supplier-quantity-decrement" aria-label="Decrease supplier quantity" ${disabledAttribute}>-</button>
-            <input class="row-input supplier-quantity-input" type="number" min="0" step="0.01" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
-            <button type="button" class="stepper-button supplier-quantity-increment" aria-label="Increase supplier quantity" ${disabledAttribute}>+</button>
-          </div>
+          <input class="row-input supplier-quantity-input" type="number" min="0" step="0.01" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
         </td>
         <td class="supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
         <td class="total-supplied">${escapeHtml(getTotalSuppliedText(item))}</td>
-        <td><input class="row-input price" type="number" min="0" step="0.01" value="${Number(item.price || 0).toFixed(2)}" ${disabledAttribute}></td>
+        <td class="price-display">${Number(item.price || 0).toFixed(2)}</td>
         <td class="line-total">${formatCurrency(item.total)}</td>
         <td><button type="button" class="row-action-button unavailable-toggle ${toggleConfig.className}" aria-label="${toggleConfig.title}" title="${toggleConfig.title}">${toggleConfig.symbol}</button></td>
       </tr>
@@ -507,11 +552,13 @@ function refreshRow(row, changedField = '') {
   const selectedProductKey = row.querySelector('.matched-product').value;
   const quantityValue = row.querySelector('.quantity').value;
   const requestedUnitInput = row.querySelector('.requested-unit');
+  const requestedUnitDisplay = row.querySelector('.requested-unit-display');
   const supplierQuantityInput = row.querySelector('.supplier-quantity-input');
-  const priceInput = row.querySelector('.price');
+  const priceDisplay = row.querySelector('.price-display');
   const matchedProduct = state.products.find((product) => (product.catalogKey || product.productName) === selectedProductKey)
     || state.products.find((product) => product.productName === selectedProductKey);
-  const requestedUnit = requestedUnitInput.value.trim();
+  // Use .value if input exists, otherwise .textContent for display-only
+  const requestedUnit = requestedUnitInput ? requestedUnitInput.value.trim() : (requestedUnitDisplay ? requestedUnitDisplay.textContent.trim() : '');
   const numericQuantity = quantityValue === '' ? null : Number(quantityValue);
   const request = resolveCustomerRequest(numericQuantity, requestedUnit);
   const selectedOption = selectSupplyOption(matchedProduct || null, request);
@@ -522,7 +569,10 @@ function refreshRow(row, changedField = '') {
   const reviewFlags = [];
 
   if (matchedProduct) {
-    priceInput.value = Number(matchedProduct.price).toFixed(2);
+    // Always update price and unit from matched product
+    item.price = Number(matchedProduct.price) || 0;
+    item.unit = normalizeSupplyLabel(selectedOption?.option?.label || matchedProduct.unit || '');
+    if (priceDisplay) priceDisplay.textContent = item.price.toFixed(2);
     item.matchedProductKey = matchedProduct.catalogKey || matchedProduct.productName;
     item.matchedProduct = matchedProduct.productName;
     item.matchedProductDisplay = matchedProduct.displayName || matchedProduct.productName;
@@ -530,11 +580,13 @@ function refreshRow(row, changedField = '') {
     item.matchedProductKey = '';
     item.matchedProduct = '';
     item.matchedProductDisplay = '';
+    item.price = 0;
+    item.unit = '';
+    if (priceDisplay) priceDisplay.textContent = '0.00';
   }
 
   item.quantity = numericQuantity;
   item.requestedUnit = requestedUnit;
-  item.price = Number(priceInput.value || 0);
   item.unitType = matchedProduct?.unitType || item.unitType || '';
   item.deliveredQuantity = null;
   item.deliveredUnitType = '';
@@ -542,7 +594,6 @@ function refreshRow(row, changedField = '') {
   item.isUnavailable = false;
 
   if (!matchedProduct) {
-    item.unit = '';
     item.supplyQuantity = 1;
     item.status = 'MANUAL CHECK';
   } else {
@@ -556,10 +607,8 @@ function refreshRow(row, changedField = '') {
 
     if (!selectedOption) {
       reviewFlags.push('supplier unit missing');
-      item.unit = normalizeSupplyLabel(matchedProduct.unit || '');
       item.supplyQuantity = 1;
     } else {
-      item.unit = normalizeSupplyLabel(selectedOption.option.label || matchedProduct.unit || '');
       const effectiveCustomerQuantity = Number.isFinite(selectedOption.effectiveCustomerQuantity)
         ? selectedOption.effectiveCustomerQuantity
         : request.customerQuantity;
@@ -664,8 +713,8 @@ resultsTableBody.addEventListener('input', (event) => {
   if (!row || !state.currentQuote) {
     return;
   }
-
   refreshRow(row, event.target.classList[1] || event.target.classList[0] || '');
+  triggerAutoSave();
 });
 
 resultsTableBody.addEventListener('change', (event) => {
@@ -673,8 +722,8 @@ resultsTableBody.addEventListener('change', (event) => {
   if (!row || !state.currentQuote) {
     return;
   }
-
   refreshRow(row, event.target.classList[1] || event.target.classList[0] || '');
+  triggerAutoSave();
 });
 
 resultsTableBody.addEventListener('click', (event) => {
@@ -691,6 +740,7 @@ resultsTableBody.addEventListener('click', (event) => {
     if (item.isUnavailable) {
       item.isUnavailable = false;
       renderQuote(state.currentQuote);
+      // After rendering, recalculate the restored row to repopulate all fields and update the button
       const restoredRow = resultsTableBody.querySelector(`tr[data-index="${index}"]`);
       if (restoredRow) {
         refreshRow(restoredRow, 'restore-available');
@@ -747,31 +797,13 @@ refreshQuoteButton.addEventListener('click', async () => {
   }
 });
 
-saveReviewButton.addEventListener('click', async () => {
-  if (!state.currentQuote) {
-    return;
-  }
-
-  setStatus('Saving reviewed quote...');
-  saveReviewButton.disabled = true;
-  setButtonLoading(saveReviewButton, true);
-
-  try {
-    const updatedQuote = await requestJson(`/api/quotes/${state.currentQuote.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ items: state.currentQuote.items })
-    });
-
-    renderQuote(updatedQuote);
+saveReviewButton.addEventListener('click', () => {
+  if (!state.currentQuote) return;
+  setSaveStatus('saving');
+  setTimeout(() => {
+    localSaveReview();
     setStatus('Review saved.');
-    await loadHistory();
-  } catch (error) {
-    setStatus(error.message, true);
-  } finally {
-    saveReviewButton.disabled = state.currentQuote?.quoteStatus === 'CLOSED';
-    setButtonLoading(saveReviewButton, false);
-  }
+  }, 400);
 });
 
 closeQuoteViewButton.addEventListener('click', () => {
@@ -782,16 +814,83 @@ closeQuoteViewButton.addEventListener('click', () => {
   closeCurrentQuoteView();
 });
 
-downloadExcelButton.addEventListener('click', () => {
-  if (state.currentQuote) {
-    window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
+async function confirmAndExport(fileType) {
+  if (!state.currentQuote) return;
+  // Confirmation dialog
+  const confirmed = window.confirm('Do you want to save your latest changes before downloading?');
+  if (!confirmed) return;
+
+  // 1. Save Review logic (local-only sync)
+  setSaveStatus('saving');
+  await new Promise((resolve) => setTimeout(resolve, 400)); // debounce match
+  localSaveReview();
+
+  // 2. Fetch next quote number from R2
+  let quoteNumber = null;
+  try {
+    const res = await fetch(`/api/quotes/next-number?fileType=${fileType}`);
+    if (!res.ok) throw new Error('Failed to get quote number');
+    const data = await res.json();
+    quoteNumber = data.quoteNumber;
+  } catch (e) {
+    setStatus('Failed to get quote number from R2', true);
+    return;
   }
+
+  // 3. Generate file (PDF/Excel) with assigned quote number
+  let fileBlob, fileName;
+  try {
+    const res = await fetch(`/api/quotes/${state.currentQuote.id}/export.${fileType}?quoteNumber=${quoteNumber}`);
+    if (!res.ok) throw new Error('File generation failed');
+    fileBlob = await res.blob();
+    fileName = `${quoteNumber}.${fileType === 'xlsx' ? 'xlsx' : 'pdf'}`;
+  } catch (e) {
+    setStatus('File generation failed', true);
+    return;
+  }
+
+  // 4. Download file to user device
+  try {
+    const url = URL.createObjectURL(fileBlob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }, 100);
+  } catch (e) {
+    setStatus('Download failed', true);
+    return;
+  }
+
+  // 5. Upload EXACT SAME file to R2 bucket
+  try {
+    const formData = new FormData();
+    formData.append('file', fileBlob, fileName);
+    formData.append('quoteNumber', quoteNumber);
+    formData.append('fileType', fileType);
+    formData.append('timestamp', new Date().toISOString());
+    await fetch('/api/quotes/upload-final', {
+      method: 'POST',
+      body: formData
+    });
+  } catch (e) {
+    setStatus('R2 upload failed (download succeeded)', true);
+    return;
+  }
+
+  setStatus(`Exported and uploaded as ${quoteNumber}.`);
+}
+
+downloadExcelButton.addEventListener('click', () => {
+  confirmAndExport('xlsx');
 });
 
 downloadPdfButton.addEventListener('click', () => {
-  if (state.currentQuote) {
-    window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
-  }
+  confirmAndExport('pdf');
 });
 
 historyList.addEventListener('click', async (event) => {

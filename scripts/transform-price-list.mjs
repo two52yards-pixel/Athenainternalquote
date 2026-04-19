@@ -4,7 +4,7 @@ import xlsx from 'xlsx';
 
 const sourcePath = path.resolve('./data/AMS PRL.xlsx');
 const outputPath = path.resolve('./data/new price list.xlsx');
-const referencePath = path.resolve('../ordertemp/Order.xlsx');
+const referencePath = path.resolve('./Order.xlsx');
 const sheetNames = ['DRY STORES', 'FRESH FOODS'];
 const targetHeaders = [
   'Item code',
