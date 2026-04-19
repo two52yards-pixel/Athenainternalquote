@@ -154,14 +154,7 @@ button {
 }
 
 button:hover:not(:disabled) {
-  background: #003459;
-  color: #fff;
-  transform: translateY(-1px);
-  
-}
-
-.quote-actions button:hover:not(:disabled) {
-  background: #003459;
+  background: var(--accent-strong);
   color: #fff;
   transform: translateY(-1px);
 }
@@ -180,33 +173,19 @@ button.is-loading, button.is-loading:disabled {
   flex-wrap: wrap;
   gap: 14px;
   align-items: end;
-  justify-content: center;
+  justify-content: flex-end;
   padding: 18px;
   border-radius: 14px;
-  background: #003459;
+  background: #0b1f3a;
   box-shadow: 0 10px 30px rgba(0,0,0,0.15);
 }
 
-.form-actions1{
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-  align-items: end;
-  justify-content: center;
-  padding: 18px;
-  border-radius: 14px;
-  margin-top: 10px;
-
-}
-
 .sample-link {
-  color: #003459;
+  color: #e7c77a;
   font-weight: 600;
   text-decoration: none;
   display: flex;
   align-items: center;
-  margin-left: 770px;
-  
 }
 
 .status-message {
