@@ -1,3 +1,17 @@
+// Serve Excel files from R2 bucket for download
+import { getR2File } from './r2GetFile.js';
+
+app.get('/r2/:key.xlsx', async (req, res, next) => {
+  try {
+    const key = req.params.key + '.xlsx';
+    const buffer = await getR2File(key);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${req.params.key}.xlsx"`);
+    res.send(Buffer.from(buffer, typeof buffer === 'string' ? 'utf8' : undefined));
+  } catch (error) {
+    res.status(404).send('File not found in R2 bucket.');
+  }
+});
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
@@ -9,6 +23,7 @@ import { loadPriceList, parseRequisitionFile } from './parser.js';
 import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote, calculateTotal } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
 import { listQuotes, loadQuote, saveQuote } from './quoteStore.js';
+import { uploadToR2 } from './r2Upload.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -443,6 +458,11 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (request
       summary
     });
 
+    // Upload quote JSON to R2 using quote number as key
+    if (quote.quoteNumber) {
+      await uploadToR2(`${quote.quoteNumber}.json`, quote, 'application/json');
+    }
+
     quoteInsights = await loadQuoteInsights(catalog);
     response.json(buildQuoteResponse(quote));
   } catch (error) {
@@ -509,6 +529,11 @@ app.put('/api/quotes/:quoteId', async (request, response, next) => {
       items: updatedItems,
       summary: summarizeQuote(updatedItems)
     });
+
+    // Upload updated quote JSON to R2 using quote number as key
+    if (updatedQuote.quoteNumber) {
+      await uploadToR2(`${updatedQuote.quoteNumber}.json`, updatedQuote, 'application/json');
+    }
 
     quoteInsights = await loadQuoteInsights(catalog);
     response.json(buildQuoteResponse(updatedQuote));

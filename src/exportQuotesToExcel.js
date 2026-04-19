@@ -1,5 +1,4 @@
 import ExcelJS from 'exceljs';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import { listQuotes } from './quoteStore.js';
 import { uploadToR2 } from './r2Upload.js';
@@ -35,12 +34,7 @@ export async function exportQuotesToExcel() {
   // Write to buffer
   const buffer = await workbook.xlsx.writeBuffer();
 
-  // Save locally (optional)
-  const localPath = path.resolve(process.cwd(), 'logs', 'quotes', 'quotes-export.xlsx');
-  await fs.writeFile(localPath, buffer);
-
   // Upload to R2
   await uploadToR2('quotes-export.xlsx', buffer);
-
-  return { localPath, r2Key: 'quotes-export.xlsx' };
+  return { r2Key: 'quotes-export.xlsx' };
 }
