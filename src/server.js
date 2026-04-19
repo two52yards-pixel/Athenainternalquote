@@ -4,183 +4,573 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { buildExcelBuffer, buildPdfBuffer } from './exporters.js';
+import { buildSupplierProvisionText, resolveCustomerRequest, selectSupplyOption } from './calculator.js';
 import { loadPriceList, parseRequisitionFile } from './parser.js';
-import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote } from './matcher.js';
+import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote, calculateTotal } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
 import { listQuotes, loadQuote, saveQuote } from './quoteStore.js';
-import { listR2QuoteFiles } from './r2ListFiles.js';
-import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const uploadsDirectory = path.join(projectRoot, 'uploads');
+const fuzzyMatchThreshold = Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7);
+
+async function resolveDefaultPriceListFile() {
+  const candidates = [
+    path.join(projectRoot, 'data', 'new price list.xlsx'),
+    path.join(projectRoot, 'data', 'new price list styled.xlsx')
+  ];
+
+  const availableCandidates = [];
+
+  for (const candidate of candidates) {
+    try {
+      const stats = await fs.stat(candidate);
+      availableCandidates.push({ candidate, modifiedTime: stats.mtimeMs });
+    } catch {
+      // Ignore missing candidate files and fall back to the ones that exist.
+    }
+  }
+
+  if (!availableCandidates.length) {
+    return candidates[0];
+  }
+
+  availableCandidates.sort((left, right) => right.modifiedTime - left.modifiedTime);
+  return availableCandidates[0].candidate;
+}
 
 await fs.mkdir(uploadsDirectory, { recursive: true });
 
-/* ================= R2 CONFIG ================= */
-
-const r2Client = new S3Client({
-  region: "auto",
-  endpoint: process.env.R2_ENDPOINT,
-  credentials: {
-    accessKeyId: process.env.R2_ACCESS_KEY_ID,
-    secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
-  },
-});
-
-/* ================= LOAD DATA ================= */
-
-const priceListPath = path.join(projectRoot, 'data', 'new price list.xlsx');
+const priceListPath = process.env.PRICE_LIST_FILE || await resolveDefaultPriceListFile();
 const rawPriceList = await loadPriceList(priceListPath);
 const catalog = prepareCatalog(rawPriceList);
-const matcher = createMatchingEngine(catalog);
+const matcher = createMatchingEngine(catalog, [], { fuzzyThreshold: fuzzyMatchThreshold });
 let quoteInsights = await loadQuoteInsights(catalog);
-
-/* ================= EXPRESS ================= */
 
 const app = express();
 const upload = multer({ dest: uploadsDirectory });
 
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(express.static(path.join(projectRoot, 'public')));
+app.use('/examples', express.static(path.join(projectRoot, 'data')));
 
-/* ================= HEALTH ================= */
+function serializeCatalogItem(product) {
+  return {
+    catalogKey: product.catalogKey || '',
+    displayName: product.displayName || product.productName,
+    productName: product.productName,
+    unit: product.unit,
+    unitType: product.unitType,
+    approxPieceWeightKg: product.approxPieceWeightKg ?? null,
+    supplyOptions: product.supplyOptions,
+    price: product.price,
+    keywords: product.keywords
+  };
+}
 
-app.get('/api/health', (req, res) => {
-  res.json({ ok: true });
+function parsePositiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function computeDeliveredQuantityForSupplyQuantity(item, supplyQuantity) {
+  const numericSupplyQuantity = parsePositiveNumber(supplyQuantity);
+  const recalculatedSupplyQuantity = parsePositiveNumber(item.supplyQuantity);
+  const recalculatedDeliveredQuantity = Number(item.deliveredQuantity);
+
+  if (!numericSupplyQuantity) {
+    return null;
+  }
+
+  if (item.deliveredUnitType === 'pack') {
+    return numericSupplyQuantity;
+  }
+
+  if (!recalculatedSupplyQuantity || !Number.isFinite(recalculatedDeliveredQuantity)) {
+    return null;
+  }
+
+  const deliveredPerSupplierUnit = recalculatedDeliveredQuantity / recalculatedSupplyQuantity;
+  return Number((numericSupplyQuantity * deliveredPerSupplierUnit).toFixed(3));
+}
+
+function buildUnavailableQuoteItem(sourceItem, normalizedItem = null) {
+  const baseItem = normalizedItem || sourceItem;
+  const quantity = sourceItem.quantity === '' || sourceItem.quantity === null || sourceItem.quantity === undefined
+    ? null
+    : Number(sourceItem.quantity);
+
+  return {
+    ...baseItem,
+    lineNumber: sourceItem.lineNumber || baseItem.lineNumber,
+    quantity: Number.isFinite(quantity) ? quantity : null,
+    requestedUnit: sourceItem.requestedUnit || baseItem.requestedUnit || '',
+    price: Number(sourceItem.price || baseItem.price || 0),
+    supplyQuantity: 0,
+    supplierQuantityOverride: null,
+    deliveredQuantity: null,
+    deliveredUnitType: '',
+    total: 0,
+    status: 'UNAVAILABLE',
+    supplierProvision: 'Unavailable',
+    isUnavailable: true,
+    matchReason: 'marked unavailable'
+  };
+}
+
+function calculateDeliveredQuantityFromSelection(item, product, supplyQuantity) {
+  const request = resolveCustomerRequest(item);
+  const selectedOption = selectSupplyOption(request, product);
+  const numericSupplyQuantity = parsePositiveNumber(supplyQuantity);
+
+  if (!selectedOption || !numericSupplyQuantity || !selectedOption.exactUnitMatch) {
+    return {
+      deliveredQuantity: null,
+      deliveredUnitType: ''
+    };
+  }
+
+  if (request.customerUnitType === 'pack') {
+    return {
+      deliveredQuantity: numericSupplyQuantity,
+      deliveredUnitType: 'pack'
+    };
+  }
+
+  if (Number(selectedOption.option.unitQuantity) <= 0) {
+    return {
+      deliveredQuantity: null,
+      deliveredUnitType: ''
+    };
+  }
+
+  return {
+    deliveredQuantity: Number((numericSupplyQuantity * Number(selectedOption.option.unitQuantity)).toFixed(3)),
+    deliveredUnitType: selectedOption.deliveredUnitType || selectedOption.option.unitType || ''
+  };
+}
+
+function applyQuoteInsight(item, matchedItem) {
+  const insight = quoteInsights.find(item);
+  if (!insight) {
+    return matchedItem;
+  }
+
+  let learnedItem = matchedItem;
+
+  if (insight.matchedProductKey && insight.matchedProductKey !== matchedItem.matchedProductKey) {
+    learnedItem = applyManualSelection(item, catalog, insight.matchedProductKey);
+  }
+
+  if (!learnedItem.matchedProductKey) {
+    return learnedItem;
+  }
+
+  const shouldApplyQuantityCalibration = learnedItem.matchedProductKey === insight.matchedProductKey
+    && Number.isFinite(Number(learnedItem.quantity))
+    && Number(learnedItem.quantity) > 0
+    && Number.isFinite(Number(insight.quantityRatio))
+    && Number(insight.quantityRatio) > 0
+    && (insight.hasSupplierQuantityOverride || learnedItem.status !== 'MATCHED');
+
+  if (!shouldApplyQuantityCalibration && learnedItem === matchedItem) {
+    return matchedItem;
+  }
+
+  const product = catalog.find((catalogItem) => (catalogItem.catalogKey || catalogItem.productName) === learnedItem.matchedProductKey);
+  const reasonBits = [];
+  const nextItem = {
+    ...learnedItem,
+    confidence: learnedItem.confidence === 'manual' ? 'manual' : 'learned'
+  };
+
+  if (learnedItem !== matchedItem) {
+    reasonBits.push(`learned product match from ${insight.sourceQuoteId}`);
+  }
+
+  if (shouldApplyQuantityCalibration) {
+    const learnedSupplyQuantity = Math.max(1, Math.ceil(Number(learnedItem.quantity) * Number(insight.quantityRatio)));
+    const delivered = product
+      ? calculateDeliveredQuantityFromSelection(learnedItem, product, learnedSupplyQuantity)
+      : { deliveredQuantity: null, deliveredUnitType: '' };
+
+    nextItem.supplyQuantity = learnedSupplyQuantity;
+    nextItem.supplierQuantityOverride = learnedSupplyQuantity;
+    nextItem.deliveredQuantity = delivered.deliveredQuantity;
+    nextItem.deliveredUnitType = delivered.deliveredUnitType;
+    nextItem.total = calculateTotal(learnedSupplyQuantity, Number(nextItem.price || 0));
+    nextItem.supplierProvision = buildSupplierProvisionText({
+      matchedProduct: nextItem.matchedProduct,
+      supplyQuantity: learnedSupplyQuantity,
+      unit: nextItem.unit,
+      deliveredQuantity: delivered.deliveredQuantity,
+      deliveredUnitType: delivered.deliveredUnitType
+    });
+    reasonBits.push(`learned quantity ratio from ${insight.sourceQuoteId}`);
+  }
+
+  if (insight.hasManualPriceOverride && Number.isFinite(insight.learnedPrice) && insight.learnedPrice > 0) {
+    nextItem.price = insight.learnedPrice;
+    nextItem.total = calculateTotal(Number(nextItem.supplyQuantity || 0), insight.learnedPrice);
+    reasonBits.push(`learned price from ${insight.sourceQuoteId}`);
+  }
+
+  if (insight.hasManualUnitOverride && insight.learnedUnit) {
+    nextItem.unit = insight.learnedUnit;
+    nextItem.supplierProvision = buildSupplierProvisionText({
+      matchedProduct: nextItem.matchedProduct,
+      supplyQuantity: nextItem.supplyQuantity,
+      unit: nextItem.unit,
+      deliveredQuantity: nextItem.deliveredQuantity,
+      deliveredUnitType: nextItem.deliveredUnitType
+    });
+  }
+
+  if (reasonBits.length) {
+    nextItem.matchReason = [nextItem.matchReason, ...reasonBits].filter(Boolean).join('; ');
+  }
+
+  return nextItem;
+}
+
+function mergeQuoteItemOverrides(sourceItem, recalculatedItem) {
+  const recalculatedSupplyQuantity = parsePositiveNumber(recalculatedItem.supplyQuantity) || 1;
+  const supplierQuantityOverride = parsePositiveNumber(sourceItem.supplierQuantityOverride);
+  const effectiveSupplyQuantity = supplierQuantityOverride || recalculatedSupplyQuantity;
+  const effectivePrice = Number(sourceItem.price || 0) > 0 ? Number(sourceItem.price) : Number(recalculatedItem.price || 0);
+  const effectiveUnit = String(sourceItem.unit || '').trim() || recalculatedItem.unit || '';
+  const effectiveDeliveredQuantity = supplierQuantityOverride
+    ? computeDeliveredQuantityForSupplyQuantity(recalculatedItem, effectiveSupplyQuantity)
+    : recalculatedItem.deliveredQuantity;
+  const overrideReasons = [];
+
+  if (supplierQuantityOverride) {
+    overrideReasons.push('manual supplier quantity');
+  }
+
+  if (effectiveUnit && effectiveUnit !== recalculatedItem.unit) {
+    overrideReasons.push('manual unit override');
+  }
+
+  if (effectivePrice !== Number(recalculatedItem.price || 0)) {
+    overrideReasons.push('manual price override');
+  }
+
+  const overrideReasonText = overrideReasons.length ? overrideReasons.join('; ') : recalculatedItem.matchReason;
+
+  return {
+    ...recalculatedItem,
+    unit: effectiveUnit,
+    price: effectivePrice,
+    supplyQuantity: effectiveSupplyQuantity,
+    supplierQuantityOverride,
+    deliveredQuantity: effectiveDeliveredQuantity,
+    deliveredUnitType: recalculatedItem.deliveredUnitType,
+    total: calculateTotal(effectiveSupplyQuantity, effectivePrice),
+    supplierProvision: buildSupplierProvisionText({
+      matchedProduct: recalculatedItem.matchedProduct,
+      supplyQuantity: effectiveSupplyQuantity,
+      unit: effectiveUnit,
+      deliveredQuantity: effectiveDeliveredQuantity,
+      deliveredUnitType: recalculatedItem.deliveredUnitType
+    }),
+    overrideReasonText
+  };
+}
+
+function buildQuoteResponse(quote) {
+  return {
+    id: quote.id,
+    quoteNumber: quote.quoteNumber,
+    quoteDate: quote.quoteDate || quote.createdAt,
+    expiryDate: quote.expiryDate || null,
+    clientName: quote.clientName,
+    vesselName: quote.vesselName,
+    port: quote.port || '',
+    imoNumber: quote.imoNumber || '',
+    scheduledArrival: quote.scheduledArrival || '',
+    contactEmail: quote.contactEmail || '',
+    agentName: quote.agentName || '',
+    originalFileName: quote.originalFileName,
+    createdAt: quote.createdAt,
+    updatedAt: quote.updatedAt,
+    quoteStatus: quote.quoteStatus || 'OPEN',
+    closedAt: quote.closedAt || null,
+    processingMs: quote.processingMs,
+    items: quote.items,
+    summary: quote.summary
+  };
+}
+
+function normalizeQuoteItems(items = []) {
+  return items.map((item, index) => {
+    const quantity = item.quantity === '' || item.quantity === null || item.quantity === undefined
+      ? null
+      : Number(item.quantity);
+    const safeQuantity = Number.isFinite(quantity) ? quantity : null;
+    const selectedProductKey = String(item.matchedProductKey || item.matchedProduct || '').trim();
+
+    if (!selectedProductKey) {
+      if (item.isUnavailable) {
+        return buildUnavailableQuoteItem(item);
+      }
+
+      return {
+        ...item,
+        lineNumber: index + 1,
+        quantity: safeQuantity,
+        supplyQuantity: Number(item.supplyQuantity || 1),
+        supplierQuantityOverride: parsePositiveNumber(item.supplierQuantityOverride),
+        deliveredQuantity: Number.isFinite(Number(item.deliveredQuantity)) ? Number(item.deliveredQuantity) : null,
+        deliveredUnitType: item.deliveredUnitType || '',
+        supplierProvision: item.supplierProvision || ''
+      };
+    }
+
+    const recalculatedItem = applyManualSelection({
+      ...item,
+      lineNumber: index + 1,
+      quantity: safeQuantity,
+      requestedUnit: item.requestedUnit || ''
+    }, catalog, selectedProductKey);
+
+    if (item.isUnavailable) {
+      return buildUnavailableQuoteItem(item, recalculatedItem);
+    }
+
+    const mergedItem = mergeQuoteItemOverrides(item, recalculatedItem);
+
+    return {
+      ...mergedItem,
+      confidence: selectedProductKey ? 'manual' : recalculatedItem.confidence,
+      matchReason: selectedProductKey
+        ? mergedItem.overrideReasonText
+        : recalculatedItem.matchReason
+    };
+  });
+}
+
+async function loadNormalizedQuote(quoteId) {
+  const quote = await loadQuote(quoteId);
+  const normalizedItems = normalizeQuoteItems(quote.items);
+  const normalizedSummary = summarizeQuote(normalizedItems);
+  const metadataNeedsUpdate = !quote.quoteNumber || !quote.quoteDate || !quote.expiryDate;
+
+  const needsUpdate = JSON.stringify(quote.items) !== JSON.stringify(normalizedItems)
+    || JSON.stringify(quote.summary) !== JSON.stringify(normalizedSummary)
+    || metadataNeedsUpdate;
+
+  if (!needsUpdate) {
+    return quote;
+  }
+
+  return saveQuote({
+    ...quote,
+    items: normalizedItems,
+    summary: normalizedSummary
+  });
+}
+
+app.get('/api/health', (_request, response) => {
+  response.json({ ok: true, priceListPath, catalogSize: catalog.length, fuzzyMatchThreshold });
 });
 
-/* ================= PROCESS QUOTE ================= */
+app.get('/api/master-products', (_request, response) => {
+  response.json({ products: catalog.map(serializeCatalogItem) });
+});
 
-app.post('/api/quotes/process', upload.single('file'), async (req, res) => {
+app.get('/api/quotes/history', async (_request, response, next) => {
   try {
-    const items = await parseRequisitionFile(req.file.path);
-    const matched = items.map(i => matcher.matchItem(i));
-    const summary = summarizeQuote(matched);
+    const quotes = await listQuotes();
+    response.json({ quotes });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/api/quotes/:quoteId', async (request, response, next) => {
+  try {
+    const quote = await loadNormalizedQuote(request.params.quoteId);
+    response.json(buildQuoteResponse(quote));
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/quotes/process', upload.single('requisitionFile'), async (request, response, next) => {
+  const startedAt = Date.now();
+
+  try {
+    if (!request.file) {
+      response.status(400).json({ error: 'A requisition file is required.' });
+      return;
+    }
+
+    const {
+      clientName,
+      vesselName,
+      port,
+      imoNumber,
+      scheduledArrival,
+      contactEmail,
+      agentName
+    } = request.body;
+
+    if (!clientName || !vesselName || !imoNumber || !scheduledArrival || !contactEmail || !agentName) {
+      response.status(400).json({ error: 'Client Name, Vessel Name, IMO Number, Scheduled Arrival, Contact Email, and Agent Name are required.' });
+      return;
+    }
+
+    const requisitionItems = await parseRequisitionFile(request.file.path);
+    const matchedItems = requisitionItems.map((item) => applyQuoteInsight(item, matcher.matchItem(item)));
+    const summary = summarizeQuote(matchedItems);
 
     const quote = await saveQuote({
-      items: matched,
+      clientName,
+      vesselName,
+      port: port || '',
+      imoNumber,
+      scheduledArrival,
+      contactEmail,
+      agentName,
+      originalFileName: request.file.originalname,
+      uploadedFilePath: request.file.path,
+      processingMs: Date.now() - startedAt,
+      quoteStatus: 'OPEN',
+      items: matchedItems,
       summary
     });
 
-    res.json(quote);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    quoteInsights = await loadQuoteInsights(catalog);
+    response.json(buildQuoteResponse(quote));
+  } catch (error) {
+    next(error);
   }
 });
 
-/* ================= FINAL EXPORT (FIXED) ================= */
-
-app.post('/api/quotes/export-final', async (req, res) => {
+app.put('/api/quotes/:quoteId', async (request, response, next) => {
   try {
-    const { quoteData, fileType, quoteNumber } = req.body;
+    const existingQuote = await loadNormalizedQuote(request.params.quoteId);
+    const incomingItems = Array.isArray(request.body.items) ? request.body.items : null;
 
-    if (!quoteData || !fileType || !quoteNumber) {
-      return res.status(400).json({ error: 'Missing data' });
+    if (!incomingItems) {
+      response.status(400).json({ error: 'Updated quote items are required.' });
+      return;
     }
 
-    const quote = typeof quoteData === 'string'
-      ? JSON.parse(quoteData)
-      : quoteData;
-
-    quote.quoteNumber = quoteNumber;
-
-    let buffer;
-    let contentType;
-
-    if (fileType === 'pdf') {
-      buffer = await buildPdfBuffer(quote);
-      contentType = 'application/pdf';
-    } else {
-      buffer = await buildExcelBuffer(quote);
-      contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    if ((existingQuote.quoteStatus || 'OPEN') === 'CLOSED') {
+      response.status(400).json({ error: 'Closed quotations cannot be edited.' });
+      return;
     }
 
-    res.setHeader('Content-Type', contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${quoteNumber}.${fileType}"`);
-    res.send(Buffer.from(buffer));
+    const updatedItems = incomingItems.map((item, index) => {
+      const existingItem = existingQuote.items[index] || {};
+      const quantity = item.quantity === '' || item.quantity === null || item.quantity === undefined
+        ? null
+        : Number(item.quantity);
+      const safeQuantity = Number.isFinite(quantity) ? quantity : null;
+      const incomingPrice = Number(item.price || 0);
+      const incomingUnit = String(item.unit || '').trim();
+      const incomingMatchedProductKey = String(item.matchedProductKey || item.matchedProduct || '').trim();
 
-  } catch (err) {
-    res.status(500).json({ error: 'Export failed' });
+      const draftItem = {
+        ...item,
+        lineNumber: index + 1,
+        quantity: safeQuantity,
+        requestedUnit: item.requestedUnit || existingItem.requestedUnit || ''
+      };
+
+      if (item.isUnavailable) {
+        const unavailableBase = incomingMatchedProductKey
+          ? applyManualSelection(draftItem, catalog, incomingMatchedProductKey)
+          : draftItem;
+        return buildUnavailableQuoteItem(item, unavailableBase);
+      }
+
+      const recalculatedItem = applyManualSelection(draftItem, catalog, incomingMatchedProductKey);
+      const mergedItem = mergeQuoteItemOverrides({
+        ...item,
+        unit: incomingUnit || item.unit || draftItem.requestedUnit || ''
+      }, recalculatedItem);
+
+      return {
+        ...mergedItem,
+        confidence: incomingMatchedProductKey ? 'manual' : recalculatedItem.confidence,
+        matchReason: incomingMatchedProductKey
+          ? mergedItem.overrideReasonText
+          : recalculatedItem.matchReason
+      };
+    });
+
+    const updatedQuote = await saveQuote({
+      ...existingQuote,
+      items: updatedItems,
+      summary: summarizeQuote(updatedItems)
+    });
+
+    quoteInsights = await loadQuoteInsights(catalog);
+    response.json(buildQuoteResponse(updatedQuote));
+  } catch (error) {
+    next(error);
   }
 });
 
-/* ================= NEXT QUOTE NUMBER ================= */
-
-function extractSeq(key) {
-  const m = key.match(/ATH(\d{2})-M(\d{5})/);
-  return m ? parseInt(m[2]) : 0;
-}
-
-app.get('/api/quotes/next-number', async (req, res) => {
+app.post('/api/quotes/:quoteId/close', async (request, response, next) => {
   try {
-    const year = String(new Date().getFullYear()).slice(-2);
-    const files = await listR2QuoteFiles();
+    const existingQuote = await loadNormalizedQuote(request.params.quoteId);
 
-    let max = 0;
-    for (const f of files) {
-      const seq = extractSeq(f);
-      if (seq > max) max = seq;
+    if ((existingQuote.quoteStatus || 'OPEN') === 'CLOSED') {
+      response.json(buildQuoteResponse(existingQuote));
+      return;
     }
 
-    const next = max + 1;
-    const quoteNumber = `ATH${year}-M${String(next).padStart(5, '0')}`;
+    const closedQuote = await saveQuote({
+      ...existingQuote,
+      quoteStatus: 'CLOSED',
+      closedAt: new Date().toISOString()
+    });
 
-    res.json({ quoteNumber });
-
-  } catch {
-    res.status(500).json({ error: 'Failed to get quote number' });
+    response.json(buildQuoteResponse(closedQuote));
+  } catch (error) {
+    next(error);
   }
 });
 
-/* ================= R2 UPLOAD ================= */
-
-app.post('/api/quotes/upload-final', async (req, res) => {
-  const formidable = (await import('formidable')).default;
-  const form = formidable();
-
-  form.parse(req, async (err, fields, files) => {
-    if (err) return res.status(400).json({ error: 'Parse error' });
-
-    try {
-      const file = files.file;
-      const { quoteNumber, fileType } = fields;
-
-      const buffer = await fs.readFile(file.filepath);
-
-      await r2Client.send(new PutObjectCommand({
-        Bucket: process.env.R2_BUCKET,
-        Key: `${quoteNumber}.${fileType}`,
-        Body: buffer
-      }));
-
-      res.json({ ok: true });
-
-    } catch {
-      res.status(500).json({ error: 'Upload failed' });
-    }
-  });
+app.get('/api/quotes/:quoteId/export.xlsx', async (request, response, next) => {
+  try {
+    const quote = await loadNormalizedQuote(request.params.quoteId);
+    const buffer = await buildExcelBuffer(quote);
+    const exportFileName = String(quote.quoteNumber || quote.id).replace(/\s+/g, '-');
+    response.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    response.setHeader('Content-Disposition', `attachment; filename="${exportFileName}.xlsx"`);
+    response.send(Buffer.from(buffer));
+  } catch (error) {
+    next(error);
+  }
 });
 
-/* ================= HISTORY ================= */
-
-app.get('/api/quotes/history', async (req, res) => {
-  const quotes = await listQuotes();
-  res.json({ quotes });
+app.get('/api/quotes/:quoteId/export.pdf', async (request, response, next) => {
+  try {
+    const quote = await loadNormalizedQuote(request.params.quoteId);
+    const buffer = await buildPdfBuffer(quote);
+    const exportFileName = String(quote.quoteNumber || quote.id).replace(/\s+/g, '-');
+    response.setHeader('Content-Type', 'application/pdf');
+    response.setHeader('Content-Disposition', `attachment; filename="${exportFileName}.pdf"`);
+    response.send(buffer);
+  } catch (error) {
+    next(error);
+  }
 });
 
-/* ================= ERROR HANDLER ================= */
-
-app.use((err, req, res, next) => {
-  res.status(500).json({ error: err.message });
+app.use((error, _request, response, _next) => {
+  const message = error instanceof Error ? error.message : 'Unexpected server error.';
+  response.status(500).json({ error: message });
 });
 
-/* ================= START ================= */
-
-const port = process.env.PORT || 3000;
-
+const port = Number(process.env.PORT || 3000);
 app.listen(port, () => {
-  console.log(`Server running on ${port}`);
+  console.log(`Athena quote system listening on http://localhost:${port}`);
+  console.log(`Using price list: ${priceListPath}`);
 });
