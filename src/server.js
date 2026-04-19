@@ -613,6 +613,8 @@ app.get('/api/quotes/next-number', async (req, res) => {
 
 // --- R2 upload endpoint for final export ---
 app.post('/api/quotes/upload-final', async (req, res) => {
+  // Use dynamic import to avoid ESM import issues and double src/src/ path problems
+  const formidable = (await import('formidable')).default;
   const form = formidable({ multiples: false });
   form.parse(req, async (err, fields, files) => {
     if (err) {
