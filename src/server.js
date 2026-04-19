@@ -1,10 +1,6 @@
-import { getR2File } from './r2GetFile.js';
-
 // ...existing code...
-
-// Place this route AFTER app is initialized
-// (should be after: const app = express();)
-
+import { getR2File } from './r2GetFile.js';
+// Serve Excel files from R2 bucket for download (must be after app is initialized)
 app.get('/r2/:key.xlsx', async (req, res, next) => {
   try {
     const key = req.params.key + '.xlsx';
