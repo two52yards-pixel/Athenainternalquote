@@ -1,5 +1,9 @@
-// Serve Excel files from R2 bucket for download
 import { getR2File } from './r2GetFile.js';
+
+// ...existing code...
+
+// Place this route AFTER app is initialized
+// (should be after: const app = express();)
 
 app.get('/r2/:key.xlsx', async (req, res, next) => {
   try {
