@@ -1,3 +1,45 @@
+// --- FINAL EXPORT ENDPOINT: Accepts full quote data, fileType, quoteNumber ---
+app.post('/api/quotes/export-final', async (req, res) => {
+  try {
+    const { quoteData, fileType, quoteNumber } = req.body;
+    if (!quoteData || !fileType || !quoteNumber) {
+      res.status(400).json({ error: 'Missing quoteData, fileType, or quoteNumber' });
+      return;
+    }
+    // Parse quoteData (should be JSON string if sent as form-urlencoded or raw)
+    let quote;
+    if (typeof quoteData === 'string') {
+      try {
+        quote = JSON.parse(quoteData);
+      } catch {
+        res.status(400).json({ error: 'Invalid quoteData JSON' });
+        return;
+      }
+    } else {
+      quote = quoteData;
+    }
+    // Attach quoteNumber if not present
+    quote.quoteNumber = quoteNumber;
+    let buffer, contentType, fileName;
+    if (fileType === 'pdf') {
+      buffer = await buildPdfBuffer(quote);
+      contentType = 'application/pdf';
+      fileName = `${quoteNumber}.pdf`;
+    } else if (fileType === 'xlsx') {
+      buffer = await buildExcelBuffer(quote);
+      contentType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+      fileName = `${quoteNumber}.xlsx`;
+    } else {
+      res.status(400).json({ error: 'Invalid fileType' });
+      return;
+    }
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename=\"${fileName}\"`);
+    res.send(Buffer.from(buffer));
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to generate export file' });
+  }
+});
 import express from 'express';
 import multer from 'multer';
 import path from 'node:path';
