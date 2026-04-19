@@ -10,12 +10,29 @@ import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQu
 import { loadQuoteInsights } from './quoteInsights.js';
 import { listQuotes, loadQuote, saveQuote } from './quoteStore.js';
 import { listR2QuoteFiles } from './r2ListFiles.js';
+import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
+import formidable from "formidable";
+import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 const uploadsDirectory = path.join(projectRoot, 'uploads');
 const fuzzyMatchThreshold = Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7);
+
+const R2_ENDPOINT = process.env.R2_ENDPOINT;
+const R2_BUCKET = process.env.R2_BUCKET;
+const R2_ACCESS_KEY_ID = process.env.R2_ACCESS_KEY_ID;
+const R2_SECRET_ACCESS_KEY = process.env.R2_SECRET_ACCESS_KEY;
+
+const r2Client = new S3Client({
+  region: "auto",
+  endpoint: R2_ENDPOINT,
+  credentials: {
+    accessKeyId: R2_ACCESS_KEY_ID,
+    secretAccessKey: R2_SECRET_ACCESS_KEY,
+  },
+});
 
 async function resolveDefaultPriceListFile() {
   const candidates = [
@@ -592,6 +609,37 @@ app.get('/api/quotes/next-number', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to get next quote number' });
   }
+});
+
+// --- R2 upload endpoint for final export ---
+app.post('/api/quotes/upload-final', async (req, res) => {
+  const form = formidable({ multiples: false });
+  form.parse(req, async (err, fields, files) => {
+    if (err) {
+      res.status(400).json({ error: 'Failed to parse form data' });
+      return;
+    }
+    try {
+      const { quoteNumber, fileType, timestamp } = fields;
+      const file = files.file;
+      if (!file || !quoteNumber || !fileType) {
+        res.status(400).json({ error: 'Missing file, quoteNumber, or fileType' });
+        return;
+      }
+      const fileBuffer = await fs.readFile(file.filepath);
+      const r2Key = `${quoteNumber}.${fileType}`;
+      await r2Client.send(new PutObjectCommand({
+        Bucket: R2_BUCKET,
+        Key: r2Key,
+        Body: fileBuffer,
+        ContentType: fileType === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      }));
+      // Optionally, store metadata (quoteNumber, fileType, timestamp, r2Key) in a DB or log
+      res.json({ ok: true, r2Key });
+    } catch (e) {
+      res.status(500).json({ error: 'Failed to upload to R2' });
+    }
+  });
 });
 
 app.use((error, _request, response, _next) => {
