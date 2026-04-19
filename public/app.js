@@ -11,8 +11,8 @@ const resultsTableBody = document.querySelector('#results-table tbody');
 const saveReviewButton = document.querySelector('#save-review-button');
 const refreshQuoteButton = document.querySelector('#refresh-quote-button');
 const closeQuoteViewButton = document.querySelector('#close-quote-view-button');
-const downloadExcelButton = document.querySelector('#download-excel-button');
-const downloadPdfButton = document.querySelector('#download-pdf-button');
+const downloadTypeSelect = document.querySelector('#download-type-select');
+const downloadQuoteButton = document.querySelector('#download-quote-button');
 const processButton = document.querySelector('#process-button');
 const historyList = document.querySelector('#history-list');
 const LAST_OPEN_QUOTE_STORAGE_KEY = 'athena:last-open-quote-id';
@@ -782,14 +782,16 @@ closeQuoteViewButton.addEventListener('click', () => {
   closeCurrentQuoteView();
 });
 
-downloadExcelButton.addEventListener('click', () => {
-  if (state.currentQuote) {
-    window.open(`/api/quotes/${state.currentQuote.id}/export.xlsx`, '_blank');
-  }
-});
 
-downloadPdfButton.addEventListener('click', () => {
-  if (state.currentQuote) {
+downloadQuoteButton.addEventListener('click', () => {
+  if (!state.currentQuote) return;
+  const quoteNumber = state.currentQuote.quoteNumber || state.currentQuote.id;
+  const type = downloadTypeSelect.value;
+  if (type === 'excel') {
+    // Download Excel from R2 bucket
+    window.open(`/r2/${encodeURIComponent(quoteNumber)}.xlsx`, '_blank');
+  } else if (type === 'pdf') {
+    // Download PDF from server (generated on demand)
     window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
   }
 });
