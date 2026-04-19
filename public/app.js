@@ -434,6 +434,14 @@ function updateQuoteActions(quote) {
   saveReviewButton.disabled = isClosed;
   refreshQuoteButton.disabled = false;
 
+  // Enable export buttons only when a quote is loaded
+  downloadExcelButton.disabled = false;
+  downloadPdfButton.disabled = false;
+
+  // Reset cursor styles on export buttons
+  downloadExcelButton.style.cursor = 'pointer';
+  downloadPdfButton.style.cursor = 'pointer';
+
   for (const element of resultsTableBody.querySelectorAll('input, select, button')) {
     element.disabled = isClosed;
   }
@@ -444,6 +452,11 @@ function closeCurrentQuoteView() {
   resultsTableBody.innerHTML = '';
   summaryPanel.classList.add('hidden');
   resultsPanel.classList.add('hidden');
+
+  // Disable export buttons when no quote is open
+  downloadExcelButton.disabled = true;
+  downloadPdfButton.disabled = true;
+
   localStorage.removeItem(LAST_OPEN_QUOTE_STORAGE_KEY);
   setStatus('Current quote view closed.');
 }
@@ -493,7 +506,7 @@ function refreshRow(row, changedField = '') {
   const index = Number(row.dataset.index);
   const item = state.currentQuote.items[index];
 
-   if (item.isUnavailable) {
+  if (item.isUnavailable) {
     markRowUnavailable(item);
     summarizeCurrentQuote();
     updateSummary(state.currentQuote);
@@ -508,7 +521,6 @@ function refreshRow(row, changedField = '') {
   const priceDisplay = row.querySelector('.price-display');
   const matchedProduct = state.products.find((product) => (product.catalogKey || product.productName) === selectedProductKey)
     || state.products.find((product) => product.productName === selectedProductKey);
-  // Use .value if input exists, otherwise .textContent for display-only
   const requestedUnit = requestedUnitInput ? requestedUnitInput.value.trim() : (requestedUnitDisplay ? requestedUnitDisplay.textContent.trim() : '');
   const numericQuantity = quantityValue === '' ? null : Number(quantityValue);
   const request = resolveCustomerRequest(numericQuantity, requestedUnit);
@@ -520,7 +532,6 @@ function refreshRow(row, changedField = '') {
   const reviewFlags = [];
 
   if (matchedProduct) {
-    // Always update price and unit from matched product
     item.price = Number(matchedProduct.price) || 0;
     item.unit = normalizeSupplyLabel(selectedOption?.option?.label || matchedProduct.unit || '');
     if (priceDisplay) priceDisplay.textContent = item.price.toFixed(2);
@@ -604,7 +615,6 @@ function refreshRow(row, changedField = '') {
   }
 
   item.total = Number(((item.supplyQuantity || 1) * item.price).toFixed(2));
-
   item.supplierProvision = buildSupplierProvisionText(item);
 
   row.querySelector('.supplier-quantity-input').value = String(getSupplierQuantity(item));
@@ -635,6 +645,9 @@ async function loadHistory() {
     : '<p>No quotes processed yet.</p>';
 }
 
+// =====================
+// FORM SUBMIT — Process requisition
+// =====================
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   processButton.disabled = true;
@@ -659,6 +672,9 @@ form.addEventListener('submit', async (event) => {
   }
 });
 
+// =====================
+// TABLE INTERACTIONS
+// =====================
 resultsTableBody.addEventListener('input', (event) => {
   const row = event.target.closest('tr');
   if (!row || !state.currentQuote) {
@@ -725,6 +741,9 @@ resultsTableBody.addEventListener('click', (event) => {
   refreshRow(row, 'supplier-quantity-input');
 });
 
+// =====================
+// REFRESH QUOTE BUTTON
+// =====================
 refreshQuoteButton.addEventListener('click', async () => {
   if (!state.currentQuote) {
     return;
@@ -747,6 +766,9 @@ refreshQuoteButton.addEventListener('click', async () => {
   }
 });
 
+// =====================
+// SAVE REVIEW BUTTON — Local draft save only. No R2 upload.
+// =====================
 saveReviewButton.addEventListener('click', async () => {
   if (!state.currentQuote) {
     return;
@@ -764,7 +786,7 @@ saveReviewButton.addEventListener('click', async () => {
     });
 
     renderQuote(updatedQuote);
-    setStatus('Review saved.');
+    setStatus('Review saved locally.');
     await loadHistory();
   } catch (error) {
     setStatus(error.message, true);
@@ -774,6 +796,9 @@ saveReviewButton.addEventListener('click', async () => {
   }
 });
 
+// =====================
+// CLOSE QUOTE BUTTON
+// =====================
 closeQuoteViewButton.addEventListener('click', () => {
   if (!state.currentQuote) {
     return;
@@ -782,18 +807,83 @@ closeQuoteViewButton.addEventListener('click', () => {
   closeCurrentQuoteView();
 });
 
-
-downloadExcelButton.addEventListener('click', () => {
+// =====================
+// DOWNLOAD EXCEL — Triggers server-side finalization, generates buffer,
+// downloads to client AND uploads exact same buffer to R2.
+// =====================
+downloadExcelButton.addEventListener('click', async () => {
   if (!state.currentQuote) return;
-  const quoteNumber = state.currentQuote.quoteNumber || state.currentQuote.id;
-  window.open(`/r2/${encodeURIComponent(quoteNumber)}.xlsx`, '_blank');
+
+  setButtonLoading(downloadExcelButton, true);
+  downloadExcelButton.disabled = true;
+  setStatus('Generating Excel export...');
+
+  try {
+    const response = await fetch(`/api/quotes/${state.currentQuote.id}/export.xlsx`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'Excel export failed.');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${state.currentQuote.quoteNumber || state.currentQuote.id}.xlsx`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+
+    setStatus('Excel downloaded and uploaded to R2.');
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    downloadExcelButton.disabled = false;
+    setButtonLoading(downloadExcelButton, false);
+  }
 });
 
-downloadPdfButton.addEventListener('click', () => {
+// =====================
+// DOWNLOAD PDF — Triggers server-side finalization, generates buffer,
+// downloads to client AND uploads exact same buffer to R2.
+// =====================
+downloadPdfButton.addEventListener('click', async () => {
   if (!state.currentQuote) return;
-  window.open(`/api/quotes/${state.currentQuote.id}/export.pdf`, '_blank');
+
+  setButtonLoading(downloadPdfButton, true);
+  downloadPdfButton.disabled = true;
+  setStatus('Generating PDF export...');
+
+  try {
+    const response = await fetch(`/api/quotes/${state.currentQuote.id}/export.pdf`);
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || 'PDF export failed.');
+    }
+
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = `${state.currentQuote.quoteNumber || state.currentQuote.id}.pdf`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+
+    setStatus('PDF downloaded and uploaded to R2.');
+  } catch (error) {
+    setStatus(error.message, true);
+  } finally {
+    downloadPdfButton.disabled = false;
+    setButtonLoading(downloadPdfButton, false);
+  }
 });
 
+// =====================
+// HISTORY PANEL
+// =====================
 historyList.addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-quote-id]');
   if (!button) {
@@ -809,7 +899,14 @@ historyList.addEventListener('click', async (event) => {
   }
 });
 
+// =====================
+// BOOTSTRAP
+// =====================
 async function bootstrap() {
+  // Start with export buttons disabled until a quote is open
+  downloadExcelButton.disabled = true;
+  downloadPdfButton.disabled = true;
+
   try {
     const [{ products }] = await Promise.all([
       requestJson('/api/master-products'),
