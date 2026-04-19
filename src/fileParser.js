@@ -140,6 +140,7 @@ function parseStructuredQuantityParts(value) {
   };
 }
 
+// FIX: removed reference to undeclared `numericQuantity`; use `baseQuantity` with a safe fallback of 1.
 function buildStructuredSupplyMetadata(quantityValue, rawUnit) {
   const quantityParts = parseStructuredQuantityParts(quantityValue);
   const trimmedUnit = String(rawUnit ?? '').trim();
@@ -151,6 +152,7 @@ function buildStructuredSupplyMetadata(quantityValue, rawUnit) {
   const unitType = detectUnitType(trimmedUnit) || 'pack';
   const totalQuantity = quantityParts.outerQuantity * quantityParts.innerQuantity;
   const baseQuantity = convertToBaseUnit(totalQuantity, trimmedUnit);
+  const resolvedUnitQuantity = baseQuantity ?? totalQuantity; // FIX: was referencing undefined `numericQuantity`
   let label = '';
 
   if (unitType === 'pcs' && quantityParts.outerQuantity === 1) {
@@ -165,7 +167,7 @@ function buildStructuredSupplyMetadata(quantityValue, rawUnit) {
     unit: label,
     supplyOptions: [{
       label,
-      unitQuantity: baseQuantity ?? numericQuantity,
+      unitQuantity: resolvedUnitQuantity,
       unitType,
       orderUnitType: 'pack',
       descriptor: unitType === 'pcs' ? 'box' : '',

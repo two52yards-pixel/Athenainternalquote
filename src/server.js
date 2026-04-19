@@ -10,11 +10,9 @@ import { uploadToR2 } from './r2Upload.js';
 
 import { buildExcelBuffer, buildPdfBuffer } from './exporters.js';
 import { loadPriceList, parseRequisitionFile } from './parser.js';
-import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote, calculateTotal } from './matcher.js';
+import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
 import { listQuotes, loadQuote, saveQuote } from './quoteStore.js';
-
-import { buildSupplierProvisionText, resolveCustomerRequest, selectSupplyOption } from './calculator.js';
 
 // =====================
 // PATH SETUP
@@ -60,10 +58,18 @@ function buildResponse(quote) {
   return {
     id: quote.id,
     quoteNumber: quote.quoteNumber,
+    quoteDate: quote.quoteDate,
+    expiryDate: quote.expiryDate,
     clientName: quote.clientName,
     vesselName: quote.vesselName,
+    imoNumber: quote.imoNumber,
+    port: quote.port,
+    scheduledArrival: quote.scheduledArrival,
+    contactEmail: quote.contactEmail,
+    agentName: quote.agentName,
     items: quote.items,
     summary: quote.summary,
+    quoteStatus: quote.quoteStatus,
     createdAt: quote.createdAt,
     updatedAt: quote.updatedAt
   };
@@ -104,6 +110,7 @@ app.get('/api/quotes/:id', async (req, res, next) => {
 });
 
 // PROCESS QUOTE
+// Responsibility: parse file, run matching, save draft locally. NO R2 upload.
 app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, res, next) => {
   try {
     if (!req.file) {
@@ -118,21 +125,19 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
 
     const summary = summarizeQuote(matchedItems);
 
+    // Save draft locally only — no R2 upload at this stage
     const quote = await saveQuote({
       clientName: req.body.clientName || '',
       vesselName: req.body.vesselName || '',
       imoNumber: req.body.imoNumber || '',
+      port: req.body.port || '',
+      scheduledArrival: req.body.scheduledArrival || '',
       contactEmail: req.body.contactEmail || '',
       agentName: req.body.agentName || '',
       originalFileName: req.file.originalname,
       items: matchedItems,
       summary
     });
-
-    // upload to R2
-    if (quote.quoteNumber) {
-      await uploadToR2(`${quote.quoteNumber}.json`, quote, 'application/json');
-    }
 
     quoteInsights = await loadQuoteInsights(catalog);
 
@@ -142,37 +147,96 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
   }
 });
 
-// EXPORT XLSX
-app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
+// SAVE REVIEW (Draft save — local only, no R2 upload)
+// Responsibility: persist user edits to the local quote store. Nothing else.
+app.put('/api/quotes/:id', async (req, res, next) => {
   try {
-    const quote = await loadQuote(req.params.id);
-    const buffer = await buildExcelBuffer(quote);
+    const existing = await loadQuote(req.params.id);
+    const incomingItems = Array.isArray(req.body.items) ? req.body.items : existing.items;
+    const summary = summarizeQuote(incomingItems);
 
-    res.setHeader(
-      'Content-Type',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    );
+    const updated = await saveQuote({
+      ...existing,
+      items: incomingItems,
+      summary
+    });
 
-    res.send(Buffer.from(buffer));
+    quoteInsights = await loadQuoteInsights(catalog);
+
+    res.json(buildResponse(updated));
   } catch (err) {
     next(err);
   }
 });
 
-// EXPORT PDF
-app.get('/api/quotes/:id/export.pdf', async (req, res, next) => {
+// EXPORT XLSX
+// Responsibility: finalise the current saved quote state, generate one buffer,
+// send it to the client AND upload that exact same buffer to R2.
+app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
   try {
     const quote = await loadQuote(req.params.id);
-    const buffer = await buildPdfBuffer(quote);
 
-    res.setHeader('Content-Type', 'application/pdf');
+    // Generate a single buffer — this is the canonical final version
+    const buffer = Buffer.from(await buildExcelBuffer(quote));
+
+    // Upload the exact same bytes to R2
+    if (quote.quoteNumber) {
+      await uploadToR2(
+        `${quote.quoteNumber}.xlsx`,
+        buffer,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      );
+    }
+
+    res.setHeader(
+      'Content-Type',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    );
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${quote.quoteNumber || quote.id}.xlsx"`
+    );
+
+    // Send the same buffer to the client
     res.send(buffer);
   } catch (err) {
     next(err);
   }
 });
 
-// R2 DOWNLOAD
+// EXPORT PDF
+// Responsibility: finalise the current saved quote state, generate one buffer,
+// send it to the client AND upload that exact same buffer to R2.
+app.get('/api/quotes/:id/export.pdf', async (req, res, next) => {
+  try {
+    const quote = await loadQuote(req.params.id);
+
+    // Generate a single buffer — this is the canonical final version
+    const buffer = await buildPdfBuffer(quote);
+
+    // Upload the exact same bytes to R2
+    if (quote.quoteNumber) {
+      await uploadToR2(
+        `${quote.quoteNumber}.pdf`,
+        buffer,
+        'application/pdf'
+      );
+    }
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="${quote.quoteNumber || quote.id}.pdf"`
+    );
+
+    // Send the same buffer to the client
+    res.send(buffer);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// R2 DOWNLOAD (for fetching previously uploaded files directly from R2)
 app.get('/r2/:key.xlsx', async (req, res) => {
   try {
     const key = `${req.params.key}.xlsx`;
@@ -182,7 +246,6 @@ app.get('/r2/:key.xlsx', async (req, res) => {
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     );
-
     res.setHeader(
       'Content-Disposition',
       `attachment; filename="${req.params.key}.xlsx"`

@@ -30,6 +30,8 @@ export async function uploadToR2(filename, content, contentType) {
   }
   let body = content;
   let type = contentType;
+  // Debug: log type and buffer status
+  console.log('[R2 DEBUG] Uploading:', filename, '| typeof:', typeof body, '| isBuffer:', Buffer.isBuffer(body), '| isStream:', body && typeof body.pipe === 'function');
   if (!type) {
     // Default to JSON if not specified
     if (typeof content === 'string' || content instanceof Buffer) {
