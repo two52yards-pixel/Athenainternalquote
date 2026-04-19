@@ -34,7 +34,7 @@ td select.matched-product, td .matched-product {
 ================================ */
 
 :root {
-  --navy: #0b1f3a;
+  --navy: #003459;
   --navy-soft: #142b4d;
   --gold: #c8a96a;
   --gold-soft: #e7c77a;
@@ -148,7 +148,7 @@ button {
   padding: 12px 18px;
   font-weight: 700;
   background: #c8a96a;
-  color: #0b1f3a;
+  color: #003459;
   cursor: pointer;
   transition: 0.2s;
 }
@@ -168,15 +168,15 @@ button.is-loading, button.is-loading:disabled {
   cursor: wait;
 }
 
-.form-actions, .quote-actions {
+  .form-actions, .quote-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
   align-items: end;
-  justify-content: flex-end;
+  justify-content: center;
   padding: 18px;
   border-radius: 14px;
-  background: #0b1f3a;
+  background: #003459;
   box-shadow: 0 10px 30px rgba(0,0,0,0.15);
 }
 
@@ -292,7 +292,7 @@ tbody tr:hover, .premium-table tbody tr:hover {
 
 .close-view-button:hover {
   background: #c8a96a;
-  color: #0b1f3a;
+  color: #003459;
 }
 
 .history-list {
