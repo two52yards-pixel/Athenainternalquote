@@ -822,80 +822,12 @@ closeQuoteViewButton.addEventListener('click', () => {
   closeCurrentQuoteView();
 });
 
-async function confirmAndExport(fileType) {
-
-  if (!state.currentQuote) return;
-  // 1. Save Review logic (local-only sync)
-  setSaveStatus('saving');
-  await new Promise((resolve) => setTimeout(resolve, 400)); // debounce match
-  localSaveReview();
-
-  // 2. Fetch next quote number from R2
-  let quoteNumber = null;
-  try {
-    const res = await fetch(`/api/quotes/next-number?fileType=${fileType}`);
-    if (!res.ok) throw new Error('Failed to get quote number');
-    const data = await res.json();
-    quoteNumber = data.quoteNumber;
-  } catch (e) {
-    setStatus('Failed to get quote number from R2', true);
-    return;
-  }
-
-  // 3. Generate file (PDF/Excel) with assigned quote number
-  let fileBlob, fileName;
-  try {
-    const res = await fetch(`/api/quotes/${state.currentQuote.id}/export.${fileType}?quoteNumber=${quoteNumber}`);
-    if (!res.ok) throw new Error('File generation failed');
-    fileBlob = await res.blob();
-    fileName = `${quoteNumber}.${fileType === 'xlsx' ? 'xlsx' : 'pdf'}`;
-  } catch (e) {
-    setStatus('File generation failed', true);
-    return;
-  }
-
-  // 4. Download file to user device
-  try {
-    const url = URL.createObjectURL(fileBlob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => {
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }, 100);
-  } catch (e) {
-    setStatus('Download failed', true);
-    return;
-  }
-
-  // 5. Upload EXACT SAME file to R2 bucket
-  try {
-    const formData = new FormData();
-    formData.append('file', fileBlob, fileName);
-    formData.append('quoteNumber', quoteNumber);
-    formData.append('fileType', fileType);
-    formData.append('timestamp', new Date().toISOString());
-    await fetch('/api/quotes/upload-final', {
-      method: 'POST',
-      body: formData
-    });
-  } catch (e) {
-    setStatus('R2 upload failed (download succeeded)', true);
-    return;
-  }
-
-  setStatus(`Exported and uploaded as ${quoteNumber}.`);
-}
-
 downloadExcelButton.addEventListener('click', () => {
-  confirmAndExport('xlsx');
+  handleFinalExport('xlsx');
 });
 
 downloadPdfButton.addEventListener('click', () => {
-  confirmAndExport('pdf');
+  handleFinalExport('pdf');
 });
 
 historyList.addEventListener('click', async (event) => {
