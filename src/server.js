@@ -9,6 +9,7 @@ import { loadPriceList, parseRequisitionFile } from './parser.js';
 import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote, calculateTotal } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
 import { listQuotes, loadQuote, saveQuote } from './quoteStore.js';
+import { listR2QuoteFiles } from './r2ListFiles.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -561,6 +562,35 @@ app.get('/api/quotes/:quoteId/export.pdf', async (request, response, next) => {
     response.send(buffer);
   } catch (error) {
     next(error);
+  }
+});
+
+// --- R2 quote number assignment endpoint ---
+function extractQuoteSequence(key) {
+  // Accepts ATHYY-M00001, ATHYY-M00002, etc.
+  const match = key.match(/ATH(\d{2})-M(\d{5})/i);
+  if (!match) return null;
+  return { year: match[1], seq: parseInt(match[2], 10) };
+}
+
+app.get('/api/quotes/next-number', async (req, res) => {
+  try {
+    const now = new Date();
+    const year = String(now.getFullYear()).slice(-2);
+    const prefix = `ATH${year}-M`;
+    const files = await listR2QuoteFiles();
+    let maxSeq = 0;
+    for (const key of files) {
+      const found = extractQuoteSequence(key);
+      if (found && found.year === year && found.seq > maxSeq) {
+        maxSeq = found.seq;
+      }
+    }
+    const nextSeq = maxSeq + 1;
+    const nextNumber = `${prefix}${String(nextSeq).padStart(5, '0')}`;
+    res.json({ quoteNumber: nextNumber });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to get next quote number' });
   }
 });
 
