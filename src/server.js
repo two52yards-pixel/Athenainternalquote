@@ -11,7 +11,7 @@ import { loadQuoteInsights } from './quoteInsights.js';
 import { listQuotes, loadQuote, saveQuote } from './quoteStore.js';
 import { listR2QuoteFiles } from './r2ListFiles.js';
 import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
-import formidable from "formidable";
+// (formidable import removed; use dynamic import in endpoint only)
 import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
