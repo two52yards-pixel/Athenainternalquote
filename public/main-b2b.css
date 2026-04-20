@@ -172,7 +172,7 @@ button.is-loading, button.is-loading:disabled {
   display: flex;
   flex-wrap: wrap;
   gap: 14px;
-  align-items: end;
+  align-items: center;
   justify-content: center;
   padding: 18px;
   border-radius: 14px;
