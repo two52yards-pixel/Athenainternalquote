@@ -16,6 +16,28 @@ const downloadPdfButton = document.querySelector('#download-pdf-button');
 const processButton = document.querySelector('#process-button');
 const historyList = document.querySelector('#history-list');
 const LAST_OPEN_QUOTE_STORAGE_KEY = 'athena:last-open-quote-id';
+const QUOTE_SCOPE_STORAGE_KEY = 'athena:quote-scope-id';
+
+function createScopeId() {
+  if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+    return window.crypto.randomUUID();
+  }
+
+  return `scope-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function getOrCreateQuoteScopeId() {
+  const existing = localStorage.getItem(QUOTE_SCOPE_STORAGE_KEY);
+  if (existing) {
+    return existing;
+  }
+
+  const scopeId = createScopeId();
+  localStorage.setItem(QUOTE_SCOPE_STORAGE_KEY, scopeId);
+  return scopeId;
+}
+
+const quoteScopeId = getOrCreateQuoteScopeId();
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -295,7 +317,13 @@ function setStatus(message, isError = false) {
 }
 
 async function requestJson(url, options = {}) {
-  const response = await fetch(url, options);
+  const requestHeaders = new Headers(options.headers || {});
+  requestHeaders.set('x-quote-scope', quoteScopeId);
+
+  const response = await fetch(url, {
+    ...options,
+    headers: requestHeaders
+  });
   const payload = await response.json();
 
   if (!response.ok) {
@@ -819,7 +847,9 @@ downloadExcelButton.addEventListener('click', async () => {
   setStatus('Generating Excel export...');
 
   try {
-    const response = await fetch(`/api/quotes/${state.currentQuote.id}/export.xlsx`);
+    const response = await fetch(`/api/quotes/${state.currentQuote.id}/export.xlsx`, {
+      headers: { 'x-quote-scope': quoteScopeId }
+    });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.error || 'Excel export failed.');
@@ -856,7 +886,9 @@ downloadPdfButton.addEventListener('click', async () => {
   setStatus('Generating PDF export...');
 
   try {
-    const response = await fetch(`/api/quotes/${state.currentQuote.id}/export.pdf`);
+    const response = await fetch(`/api/quotes/${state.currentQuote.id}/export.pdf`, {
+      headers: { 'x-quote-scope': quoteScopeId }
+    });
     if (!response.ok) {
       const payload = await response.json().catch(() => ({}));
       throw new Error(payload.error || 'PDF export failed.');

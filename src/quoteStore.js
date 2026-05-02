@@ -2,7 +2,17 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-const quotesDirectory = path.resolve(process.cwd(), 'logs', 'quotes');
+const quotesRootDirectory = path.resolve(process.cwd(), 'logs', 'quotes');
+
+function sanitizeScopeKey(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  const safe = normalized.replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').slice(0, 64);
+  return safe || 'default';
+}
+
+function getQuotesDirectory(scopeKey) {
+  return path.join(quotesRootDirectory, sanitizeScopeKey(scopeKey));
+}
 
 function toDate(value) {
   const parsed = value ? new Date(value) : new Date();
@@ -26,16 +36,17 @@ function formatQuoteNumber(date, monthlySequence) {
   return `ATH${year} - ${month}${sequence}`;
 }
 
-async function ensureQuotesDirectory() {
-  await fs.mkdir(quotesDirectory, { recursive: true });
+async function ensureQuotesDirectory(scopeKey) {
+  await fs.mkdir(getQuotesDirectory(scopeKey), { recursive: true });
 }
 
-function getQuotePath(quoteId) {
-  return path.join(quotesDirectory, `${quoteId}.json`);
+function getQuotePath(scopeKey, quoteId) {
+  return path.join(getQuotesDirectory(scopeKey), `${quoteId}.json`);
 }
 
-async function getNextMonthlyQuoteSequence(targetDate, currentQuoteId) {
-  await ensureQuotesDirectory();
+async function getNextMonthlyQuoteSequence(scopeKey, targetDate, currentQuoteId) {
+  const quotesDirectory = getQuotesDirectory(scopeKey);
+  await ensureQuotesDirectory(scopeKey);
   const files = await fs.readdir(quotesDirectory);
   let count = 0;
 
@@ -59,7 +70,7 @@ async function enrichQuoteMetadata(record) {
   const quoteDate = toDate(record.quoteDate || record.createdAt || record.updatedAt);
   const monthlySequence = record.quoteNumber
     ? null
-    : await getNextMonthlyQuoteSequence(quoteDate, record.id);
+    : await getNextMonthlyQuoteSequence(record.scopeKey, quoteDate, record.id);
 
   return {
     ...record,
@@ -70,12 +81,14 @@ async function enrichQuoteMetadata(record) {
 }
 
 export async function saveQuote(quote) {
-  await ensureQuotesDirectory();
+  const scopeKey = sanitizeScopeKey(quote.scopeKey);
+  await ensureQuotesDirectory(scopeKey);
 
   const quoteId = quote.id || `quote-${Date.now()}-${randomUUID().slice(0, 8)}`;
   const baseRecord = {
     ...quote,
     id: quoteId,
+    scopeKey,
     quoteStatus: quote.quoteStatus || 'OPEN',
     updatedAt: new Date().toISOString()
   };
@@ -86,17 +99,18 @@ export async function saveQuote(quote) {
 
   const record = await enrichQuoteMetadata(baseRecord);
 
-  await fs.writeFile(getQuotePath(quoteId), JSON.stringify(record, null, 2), 'utf8');
+  await fs.writeFile(getQuotePath(scopeKey, quoteId), JSON.stringify(record, null, 2), 'utf8');
   return record;
 }
 
-export async function loadQuote(quoteId) {
-  const content = await fs.readFile(getQuotePath(quoteId), 'utf8');
+export async function loadQuote(quoteId, scopeKey) {
+  const content = await fs.readFile(getQuotePath(scopeKey, quoteId), 'utf8');
   return JSON.parse(content);
 }
 
-export async function listQuotes() {
-  await ensureQuotesDirectory();
+export async function listQuotes(scopeKey) {
+  const quotesDirectory = getQuotesDirectory(scopeKey);
+  await ensureQuotesDirectory(scopeKey);
 
   const files = await fs.readdir(quotesDirectory);
   const quotes = [];

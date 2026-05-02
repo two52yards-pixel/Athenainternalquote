@@ -51,6 +51,10 @@ const matcher = createMatchingEngine(catalog, [], {
 
 let quoteInsights = await loadQuoteInsights(catalog);
 
+function getQuoteScopeKey(req) {
+  return String(req.get('x-quote-scope') || '').trim();
+}
+
 // =====================
 // HELPERS
 // =====================
@@ -92,7 +96,7 @@ app.get('/api/master-products', (req, res) => {
 // QUOTE HISTORY
 app.get('/api/quotes/history', async (req, res, next) => {
   try {
-    const quotes = await listQuotes();
+    const quotes = await listQuotes(getQuoteScopeKey(req));
     res.json({ quotes });
   } catch (err) {
     next(err);
@@ -102,7 +106,7 @@ app.get('/api/quotes/history', async (req, res, next) => {
 // LOAD QUOTE
 app.get('/api/quotes/:id', async (req, res, next) => {
   try {
-    const quote = await loadQuote(req.params.id);
+    const quote = await loadQuote(req.params.id, getQuoteScopeKey(req));
     res.json(buildResponse(quote));
   } catch (err) {
     next(err);
@@ -127,6 +131,7 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
 
     // Save draft locally only — no R2 upload at this stage
     const quote = await saveQuote({
+      scopeKey: getQuoteScopeKey(req),
       clientName: req.body.clientName || '',
       vesselName: req.body.vesselName || '',
       imoNumber: req.body.imoNumber || '',
@@ -151,12 +156,14 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
 // Responsibility: persist user edits to the local quote store. Nothing else.
 app.put('/api/quotes/:id', async (req, res, next) => {
   try {
-    const existing = await loadQuote(req.params.id);
+    const scopeKey = getQuoteScopeKey(req);
+    const existing = await loadQuote(req.params.id, scopeKey);
     const incomingItems = Array.isArray(req.body.items) ? req.body.items : existing.items;
     const summary = summarizeQuote(incomingItems);
 
     const updated = await saveQuote({
       ...existing,
+      scopeKey,
       items: incomingItems,
       summary
     });
@@ -174,7 +181,7 @@ app.put('/api/quotes/:id', async (req, res, next) => {
 // send it to the client AND upload that exact same buffer to R2.
 app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
   try {
-    const quote = await loadQuote(req.params.id);
+    const quote = await loadQuote(req.params.id, getQuoteScopeKey(req));
 
     // Generate a single buffer — this is the canonical final version
     const buffer = Buffer.from(await buildExcelBuffer(quote));
@@ -209,7 +216,7 @@ app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
 // send it to the client AND upload that exact same buffer to R2.
 app.get('/api/quotes/:id/export.pdf', async (req, res, next) => {
   try {
-    const quote = await loadQuote(req.params.id);
+    const quote = await loadQuote(req.params.id, getQuoteScopeKey(req));
 
     // Generate a single buffer — this is the canonical final version
     const buffer = await buildPdfBuffer(quote);
