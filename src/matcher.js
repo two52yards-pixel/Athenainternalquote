@@ -7,6 +7,12 @@ function normalizeText(value) {
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
     .replace(/&/g, ' and ')
+    .replace(/\begg\s*plats?\b/g, ' aubergine ')
+    .replace(/\begg[\s-]*plants?\b/g, ' aubergine ')
+    .replace(/\btanger(?:ines?|ins?)\b/g, ' mandarin ')
+    .replace(/\b(?:bok|bak|pak)\s*[- ]?cho(?:i|y)\b/g, ' pak choi ')
+    .replace(/\bch(?:i|ic)nese\s*cabbages?\b/g, ' chinese leaf ')
+    .replace(/\bch(?:i|ic)nese\s*leaves\b/g, ' chinese leaf ')
     .replace(/\bfillets\b/g, ' fillet ')
     .replace(/\bsides\b/g, ' side ')
     .replace(/\bsacks\b/g, ' bag ')
@@ -461,8 +467,66 @@ function createFuzzyMatcher(products, fuzzyThreshold, freshProduceTokens) {
   };
 }
 
+
+// Custom yogurt matching logic
 function matchProduct(item, products, fuzzyMatcher, freshProduceTokens) {
   const context = buildMatchContext(item, freshProduceTokens);
+  const itemText = context.cleanedText;
+  const requestedQty = context.request.customerQuantity;
+  const requestedUnitType = context.request.customerUnitType;
+
+  // Special handling for yogurt
+  const isYogurtRequest = /yogurt|yoghurt/.test(itemText);
+  if (isYogurtRequest) {
+    // If user asks for 'plain yogurt' or 'assorted yogurt', match by name
+    let yogurtType = null;
+    if (/plain/.test(itemText)) yogurtType = 'plain';
+    if (/assorted/.test(itemText)) yogurtType = 'assorted';
+
+    // Find all yogurt products
+    const yogurtProducts = products.filter(p => /yogurt|yoghurt/i.test(p.productName));
+
+    // If user asks for pcs, match to 125g x 20pcs packs
+    if (requestedUnitType === 'pcs' && requestedQty) {
+      // Find 125g x 20pcs packs
+      let match = yogurtProducts.find(p => /125g\s*x\s*20pcs/i.test(p.unit));
+      if (yogurtType) {
+        match = yogurtProducts.find(p => /125g\s*x\s*20pcs/i.test(p.unit) && p.productName.toLowerCase().includes(yogurtType));
+      }
+      if (match) {
+        return { product: match, score: 1, confidence: 'high', reason: 'yogurt pcs pack match' };
+      }
+    }
+
+    // If user asks for a multiple of 20 pcs, match to 125g x 20pcs packs
+    if (requestedUnitType === 'pcs' && requestedQty && requestedQty % 20 === 0) {
+      let match = yogurtProducts.find(p => /125g\s*x\s*20pcs/i.test(p.unit));
+      if (yogurtType) {
+        match = yogurtProducts.find(p => /125g\s*x\s*20pcs/i.test(p.unit) && p.productName.toLowerCase().includes(yogurtType));
+      }
+      if (match) {
+        return { product: match, score: 1, confidence: 'high', reason: 'yogurt pcs pack match' };
+      }
+    }
+
+    // If user asks for kg, match to 5kg natural set yogurt (if present)
+    if (requestedUnitType === 'kg' && requestedQty) {
+      let match = yogurtProducts.find(p => /5kg/i.test(p.unit) && /natural set/i.test(p.productName));
+      if (match) {
+        return { product: match, score: 1, confidence: 'high', reason: 'yogurt 5kg match' };
+      }
+    }
+
+    // If user asks for plain or assorted yogurt by name, match by name
+    if (yogurtType) {
+      let match = yogurtProducts.find(p => p.productName.toLowerCase().includes(yogurtType));
+      if (match) {
+        return { product: match, score: 1, confidence: 'high', reason: 'yogurt name match' };
+      }
+    }
+  }
+
+  // Fallback to default matching
   const keywordMatch = findKeywordMatch(context, products);
   if (keywordMatch) {
     return keywordMatch;

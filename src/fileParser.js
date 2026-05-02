@@ -18,7 +18,7 @@ const ATHENA_PRICE_LIST_HEADERS = {
   product: ['standard product name', 'product name'],
   supplierQuantity: ['supplier quantity', 'supplier qantity'],
   supplierUnit: ['supplier unit'],
-  unit: ['packaging per ctn'],
+  unit: ['packaging per ctn', 'order quantity'],
   price: ['sale price'],
   itemCode: ['item code']
 };
@@ -50,6 +50,30 @@ const CATALOG_UNIT_OVERRIDES = {
     supplyOptions: [{
       label: 'Box of 60 pcs',
       unitQuantity: 60,
+      unitType: 'pcs',
+      orderUnitType: 'pack',
+      descriptor: 'box',
+      isFallback: false
+    }],
+    unitType: 'pcs'
+  },
+  DAI113: {
+    unit: 'Box of 20 pcs',
+    supplyOptions: [{
+      label: 'Box of 20 pcs',
+      unitQuantity: 20,
+      unitType: 'pcs',
+      orderUnitType: 'pack',
+      descriptor: 'box',
+      isFallback: false
+    }],
+    unitType: 'pcs'
+  },
+  DAI114: {
+    unit: 'Box of 20 pcs',
+    supplyOptions: [{
+      label: 'Box of 20 pcs',
+      unitQuantity: 20,
       unitType: 'pcs',
       orderUnitType: 'pack',
       descriptor: 'box',
@@ -184,6 +208,72 @@ function buildSupplyUnitMetadata(unitValue) {
   return {
     supplyOptions,
     unitType: primaryOption?.unitType || detectUnitType(unitValue) || 'pack'
+  };
+}
+
+function buildFallbackSupplyMetadata() {
+  return {
+    unit: '1 unit',
+    supplyOptions: [{
+      label: '1 unit',
+      unitQuantity: 1,
+      unitType: 'pack',
+      orderUnitType: 'pack',
+      descriptor: '',
+      isFallback: true
+    }],
+    unitType: 'pack'
+  };
+}
+
+function extractTrailingSupplyText(productName) {
+  const normalizedName = String(productName ?? '').replace(/\s+/g, ' ').trim();
+  if (!normalizedName) {
+    return '';
+  }
+
+  const patterns = [
+    /(box|boxes|tray|trays|carton|cartons|case|cases|bag|bags|pack|packs|packet|packets|bottle|bottles|roll|rolls|tin|tins|jar|jars)\s*(?:of)?\s*\d+(?:\.\d+)?(?:\s*(?:kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units))?$/i,
+    /\d+(?:\.\d+)?\s*[xX]\s*\d+(?:\.\d+)?\s*(?:kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units)$/i,
+    /\d+(?:\.\d+)?\s*(?:kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units)$/i
+  ];
+
+  for (const pattern of patterns) {
+    const match = normalizedName.match(pattern);
+    if (match) {
+      return match[0].trim();
+    }
+  }
+
+  return '';
+}
+
+function deriveSupplyMetadataFromProductName(productName) {
+  const embeddedUnit = extractTrailingSupplyText(productName);
+  if (!embeddedUnit) {
+    return null;
+  }
+
+  const multipliedMatch = embeddedUnit.match(/^(\d+(?:\.\d+)?)\s*[xX]\s*(\d+(?:\.\d+)?)\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units)$/i);
+  if (multipliedMatch) {
+    return buildStructuredSupplyMetadata(
+      `${multipliedMatch[1]} x ${multipliedMatch[2]}`,
+      multipliedMatch[3]
+    );
+  }
+
+  const singleMatch = embeddedUnit.match(/^(\d+(?:\.\d+)?)\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units)$/i);
+  if (singleMatch) {
+    return buildStructuredSupplyMetadata(singleMatch[1], singleMatch[2]);
+  }
+
+  const supplyUnitMetadata = buildSupplyUnitMetadata(embeddedUnit);
+  const primaryOption = supplyUnitMetadata.supplyOptions[0] || null;
+
+  return {
+    unit: primaryOption?.label || embeddedUnit,
+    supplyOptions: supplyUnitMetadata.supplyOptions,
+    unitType: supplyUnitMetadata.unitType
   };
 }
 
@@ -398,12 +488,21 @@ function parseAthenaWorkbook(workbook) {
         indexes.supplierUnit >= 0 ? row[indexes.supplierUnit] : ''
       );
       const legacyUnit = indexes.unit >= 0 ? String(row[indexes.unit] ?? '').trim() : '';
-      const baseSupplyMetadata = structuredSupplyMetadata || {
-        unit: legacyUnit,
-        ...buildSupplyUnitMetadata(legacyUnit)
-      };
+      const derivedSupplyMetadata = !structuredSupplyMetadata && !legacyUnit
+        ? deriveSupplyMetadataFromProductName(productName)
+        : null;
+      const baseSupplyMetadata = structuredSupplyMetadata
+        || (legacyUnit
+          ? {
+            unit: legacyUnit,
+            ...buildSupplyUnitMetadata(legacyUnit)
+          }
+          : derivedSupplyMetadata || buildFallbackSupplyMetadata());
       const supplyUnitMetadata = applyCatalogUnitOverride(itemCode, baseSupplyMetadata);
-      const unit = supplyUnitMetadata.unit || legacyUnit;
+      const unit = supplyUnitMetadata.unit
+        || legacyUnit
+        || supplyUnitMetadata.supplyOptions?.[0]?.label
+        || '1 unit';
 
       if (!productName || price === null || price <= 0) {
         continue;
