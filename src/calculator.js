@@ -14,6 +14,10 @@ export function detectUnitType(value) {
     return '';
   }
 
+  if (/^units?$/.test(normalized)) {
+    return 'pack';
+  }
+
   if (/(^|\s)(kg|kgs|kilo|kilos|kilogram|kilograms|g|gram|grams)(\s|$)/.test(normalized)) {
     return 'kg';
   }
@@ -158,6 +162,10 @@ function parseSupplyOptionSegment(segment) {
   const rawSegment = String(segment ?? '').trim();
   if (!rawSegment) {
     return null;
+  }
+
+  if (/^\(?\s*units?\s*\)?$/i.test(rawSegment)) {
+    return createSupplyOption('BOX', 1, 'pack', 'box');
   }
 
   const ofMatch = rawSegment.match(/(box|boxes|tray|trays|carton|cartons|case|cases|bag|bags|pack|packs|packet|packets|bottle|bottles|roll|rolls|tin|tins|jar|jars)\s*(?:of)?\s*(\d+(?:\.\d+)?)(?:\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units))?/i);
@@ -321,26 +329,60 @@ function unitWordFromRequest(rawRequestedUnit) {
   return descriptorMatch ? descriptorMatch[1].replace(/s$/, '') : '';
 }
 
-function getApproximateUnitMatch(request, product, option) {
-  const approxPieceWeightKg = Number(product?.approxPieceWeightKg);
-
-  if (!Number.isFinite(approxPieceWeightKg) || approxPieceWeightKg <= 0 || request.customerQuantity === null) {
-    return null;
+function isForceKgConversionProduct(product) {
+  const unitKgEquivalent = Number(product?.unitKgEquivalent);
+  if (!Number.isFinite(unitKgEquivalent) || unitKgEquivalent <= 0) {
+    return false;
   }
 
-  if (request.customerUnitType === 'pcs' && option.unitType === 'kg') {
+  if (product?.forceKgConversion === true) {
+    return true;
+  }
+
+  const sourceRowNumber = Number(product?.sourceRowNumber);
+  return Number.isInteger(sourceRowNumber) && sourceRowNumber >= 521 && sourceRowNumber <= 615;
+}
+
+function withForcedKgRequest(request, product) {
+  if (!isForceKgConversionProduct(product)) {
+    return request;
+  }
+
+  return {
+    ...request,
+    customerUnitType: 'kg'
+  };
+}
+
+function getApproximateUnitMatch(request, product, option) {
+  const approxPieceWeightKg = Number(product?.approxPieceWeightKg);
+  const unitKgEquivalent = Number(product?.unitKgEquivalent);
+
+  if (request.customerUnitType === 'pcs' && option.unitType === 'kg' && Number.isFinite(approxPieceWeightKg) && approxPieceWeightKg > 0 && request.customerQuantity !== null) {
     return {
       exactUnitMatch: true,
       effectiveCustomerQuantity: request.customerQuantity * approxPieceWeightKg,
-      deliveredUnitType: 'kg'
+      deliveredUnitType: 'kg',
+      unitQuantityForFulfillment: option.unitQuantity
     };
   }
 
-  if (request.customerUnitType === 'kg' && option.unitType === 'pcs') {
+  if (request.customerUnitType === 'kg' && option.unitType === 'pcs' && Number.isFinite(approxPieceWeightKg) && approxPieceWeightKg > 0 && request.customerQuantity !== null) {
     return {
       exactUnitMatch: true,
       effectiveCustomerQuantity: request.customerQuantity / approxPieceWeightKg,
-      deliveredUnitType: 'pcs'
+      deliveredUnitType: 'pcs',
+      unitQuantityForFulfillment: option.unitQuantity
+    };
+  }
+
+  // If customer requests KG and product is sold in pack units, use remarks KG equivalent.
+  if (request.customerUnitType === 'kg' && option.orderUnitType === 'pack' && request.customerQuantity !== null && Number.isFinite(unitKgEquivalent) && unitKgEquivalent > 0) {
+    return {
+      exactUnitMatch: true,
+      effectiveCustomerQuantity: request.customerQuantity,
+      deliveredUnitType: 'kg',
+      unitQuantityForFulfillment: Math.max((Number(option.unitQuantity) || 1) * unitKgEquivalent, unitKgEquivalent)
     };
   }
 
@@ -348,10 +390,11 @@ function getApproximateUnitMatch(request, product, option) {
 }
 
 export function selectSupplyOption(request, product) {
+  const effectiveRequest = withForcedKgRequest(request, product);
   const options = Array.isArray(product?.supplyOptions) && product.supplyOptions.length
     ? product.supplyOptions
     : parseSupplyOptions(product?.unit || '');
-  const requestedDescriptor = unitWordFromRequest(request.rawRequestedUnit);
+  const requestedDescriptor = unitWordFromRequest(effectiveRequest.rawRequestedUnit);
   const isEggProduct = /\begg\b/i.test(String(product?.productName || ''));
 
   let bestMatch = null;
@@ -359,25 +402,27 @@ export function selectSupplyOption(request, product) {
   for (const option of options) {
     let score = option.isFallback ? -5 : 5;
     let exactUnitMatch = false;
-    let effectiveCustomerQuantity = request.customerQuantity;
+    let effectiveCustomerQuantity = effectiveRequest.customerQuantity;
     let deliveredUnitType = option.unitType;
     let approximateUnitMatch = false;
+    let unitQuantityForFulfillment = Number(option.unitQuantity) || 1;
 
-    if (request.customerUnitType) {
-      if (request.customerUnitType === option.unitType) {
+    if (effectiveRequest.customerUnitType) {
+      if (effectiveRequest.customerUnitType === option.unitType) {
         score += 100;
         exactUnitMatch = true;
-      } else if (request.customerUnitType === 'pack' && option.orderUnitType === 'pack') {
+      } else if (effectiveRequest.customerUnitType === 'pack' && option.orderUnitType === 'pack') {
         score += 85;
         exactUnitMatch = true;
       } else {
-        const approximateMatch = getApproximateUnitMatch(request, product, option);
+        const approximateMatch = getApproximateUnitMatch(effectiveRequest, product, option);
         if (approximateMatch) {
           score += 95;
           exactUnitMatch = true;
           approximateUnitMatch = true;
           effectiveCustomerQuantity = approximateMatch.effectiveCustomerQuantity;
           deliveredUnitType = approximateMatch.deliveredUnitType;
+          unitQuantityForFulfillment = Number(approximateMatch.unitQuantityForFulfillment) || unitQuantityForFulfillment;
         } else {
           score -= 40;
         }
@@ -387,31 +432,35 @@ export function selectSupplyOption(request, product) {
     if (requestedDescriptor) {
       if (option.descriptor === requestedDescriptor) {
         score += 35;
-      } else if (request.customerUnitType === 'pack') {
+      } else if (effectiveRequest.customerUnitType === 'pack') {
         score -= 10;
       }
     }
 
-    if (effectiveCustomerQuantity !== null && exactUnitMatch && option.unitQuantity > 0) {
-      if (effectiveCustomerQuantity === option.unitQuantity) {
+    if (effectiveCustomerQuantity !== null && exactUnitMatch && unitQuantityForFulfillment > 0) {
+      if (effectiveCustomerQuantity === unitQuantityForFulfillment) {
         score += 30;
       } else {
-        const remainder = effectiveCustomerQuantity % option.unitQuantity;
+        const remainder = effectiveCustomerQuantity % unitQuantityForFulfillment;
         if (remainder === 0) {
           score += 12;
         }
       }
 
-      const estimatedSupplyCount = Math.ceil(effectiveCustomerQuantity / option.unitQuantity);
+      const estimatedSupplyCount = Math.ceil(effectiveCustomerQuantity / unitQuantityForFulfillment);
       score -= estimatedSupplyCount * 0.01;
 
-      if (isEggProduct && request.customerUnitType === 'pcs' && effectiveCustomerQuantity >= 1000) {
-        score += option.unitQuantity / 10;
+      if (estimatedSupplyCount > 500) {
+        score -= 15;
+      }
+
+      if (isEggProduct && effectiveRequest.customerUnitType === 'pcs' && effectiveCustomerQuantity >= 1000) {
+        score += unitQuantityForFulfillment / 10;
       }
     }
 
     if (!bestMatch || score > bestMatch.score) {
-      bestMatch = { option, score, exactUnitMatch, effectiveCustomerQuantity, deliveredUnitType, approximateUnitMatch };
+      bestMatch = { option, score, exactUnitMatch, effectiveCustomerQuantity, deliveredUnitType, approximateUnitMatch, unitQuantityForFulfillment };
     }
   }
 
@@ -425,7 +474,8 @@ export function calculateTotal(quantity, price) {
 }
 
 export function convertMatchedQuantity(item, product) {
-  const resolvedRequest = resolveCustomerRequest(item);
+  const resolvedRequest = withForcedKgRequest(resolveCustomerRequest(item), product);
+  const forcedKgMode = isForceKgConversionProduct(product);
   const reviewFlags = [];
   const selectedOption = selectSupplyOption(resolvedRequest, product);
 
@@ -468,18 +518,21 @@ export function convertMatchedQuantity(item, product) {
   const effectiveCustomerQuantity = Number.isFinite(selectedOption.effectiveCustomerQuantity)
     ? selectedOption.effectiveCustomerQuantity
     : resolvedRequest.customerQuantity;
+  const unitQuantityForFulfillment = Number.isFinite(selectedOption.unitQuantityForFulfillment)
+    ? selectedOption.unitQuantityForFulfillment
+    : selectedOption.option.unitQuantity;
 
   const supplyQuantity = selectedOption.exactUnitMatch
-    ? (resolvedRequest.customerUnitType === 'pack'
+    ? (resolvedRequest.customerUnitType === 'pack' && !forcedKgMode
       ? Math.max(1, Math.ceil(resolvedRequest.customerQuantity))
-      : (selectedOption.option.unitQuantity > 0 && Number.isFinite(effectiveCustomerQuantity)
-        ? Math.max(1, Math.ceil(effectiveCustomerQuantity / selectedOption.option.unitQuantity))
+      : (unitQuantityForFulfillment > 0 && Number.isFinite(effectiveCustomerQuantity)
+        ? Math.max(1, Math.ceil(effectiveCustomerQuantity / unitQuantityForFulfillment))
         : 1))
     : 1;
   const deliveredQuantity = selectedOption.exactUnitMatch
-    ? (resolvedRequest.customerUnitType === 'pack'
+    ? (resolvedRequest.customerUnitType === 'pack' && !forcedKgMode
       ? supplyQuantity
-      : supplyQuantity * selectedOption.option.unitQuantity)
+      : supplyQuantity * unitQuantityForFulfillment)
     : null;
 
   return {

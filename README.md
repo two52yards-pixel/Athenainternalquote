@@ -17,7 +17,7 @@ Internal web-based quoting prototype for Athena Marine Supplies. Staff can uploa
 internal-quote-system/
   data/
     AMS PRL.xlsx
-    new price list.xlsx
+    ATH PRICE LIST - MAIN.xlsx
     sample-price-list.xlsx
     sample-price-list1.csv
     sample-requisition.csv
@@ -55,7 +55,7 @@ internal-quote-system/
 
 ## Default Data Files
 
-- Master price list: `data/new price list.xlsx`
+- Master price list: `data/ATH PRICE LIST - MAIN.xlsx`
 - Example requisition: `data/sample-requisition.csv`
 - Example master price list formats: `data/sample-price-list.xlsx`, `data/sample-price-list1.csv`
 
@@ -73,7 +73,7 @@ Expected price list columns:
 - `unit`
 - `price`
 
-The loader supports the Athena multi-sheet workbook format, and the app now defaults to the transformed workbook at `data/new price list.xlsx` for catalog loading and fuzzy matching.
+The loader supports the Athena multi-sheet workbook format, and the app now defaults to the transformed workbook at `data/ATH PRICE LIST - MAIN.xlsx` for catalog loading and fuzzy matching.
 
 Supported Athena columns now include either the older layout with `PACKAGING PER CTN`, or the updated structured supplier layout with:
 

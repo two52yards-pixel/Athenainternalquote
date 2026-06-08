@@ -41,7 +41,7 @@ await fs.mkdir(uploadsDirectory, { recursive: true });
 // =====================
 // LOAD DATA / STATE
 // =====================
-const priceListPath = process.env.PRICE_LIST_FILE || path.join(projectRoot, 'data', 'new price list.xlsx');
+const priceListPath = process.env.PRICE_LIST_FILE || path.join(projectRoot, 'data', 'ATH PRICE LIST - MAIN.xlsx');
 const rawPriceList = await loadPriceList(priceListPath);
 
 const catalog = prepareCatalog(rawPriceList);

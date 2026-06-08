@@ -15,10 +15,11 @@ const DESCRIPTION_HEADER_PREFERENCE = [
 ];
 
 const ATHENA_PRICE_LIST_HEADERS = {
-  product: ['standard product name', 'product name'],
+  product: ['standard product name', 'product name', 'description2', 'description'],
   supplierQuantity: ['supplier quantity', 'supplier qantity'],
   supplierUnit: ['supplier unit'],
   unit: ['packaging per ctn', 'order quantity'],
+  remarks: ['remarks', 'comments', 'note', 'notes'],
   price: ['sale price'],
   itemCode: ['item code']
 };
@@ -286,12 +287,11 @@ function findAthenaHeaderRow(rows, maxScanRows = 20) {
     const normalized = row.map(normalizeHeader);
     const hasProduct = normalized.some((cell) => ATHENA_PRICE_LIST_HEADERS.product.includes(cell));
     const hasPrice = normalized.some((cell) => ATHENA_PRICE_LIST_HEADERS.price.includes(cell));
-    const hasItemCode = normalized.some((cell) => ATHENA_PRICE_LIST_HEADERS.itemCode.includes(cell));
     const hasLegacyUnit = normalized.some((cell) => ATHENA_PRICE_LIST_HEADERS.unit.includes(cell));
     const hasStructuredUnit = normalized.some((cell) => ATHENA_PRICE_LIST_HEADERS.supplierQuantity.includes(cell))
       && normalized.some((cell) => ATHENA_PRICE_LIST_HEADERS.supplierUnit.includes(cell));
 
-    return hasProduct && hasPrice && hasItemCode && (hasLegacyUnit || hasStructuredUnit);
+    return hasProduct && hasPrice && (hasLegacyUnit || hasStructuredUnit);
   });
 }
 
@@ -325,6 +325,113 @@ function applyApproximatePieceWeight(itemCode, product) {
   return {
     ...product,
     approxPieceWeightKg
+  };
+}
+
+function parseRemarkApproxPieceWeightKg(remarks) {
+  const normalized = String(remarks ?? '')
+    .toLowerCase()
+    .replace(/,/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  const parseMassToKg = (value, unit) => {
+    const numeric = Number(value);
+    if (!Number.isFinite(numeric) || numeric <= 0) {
+      return null;
+    }
+
+    return /^g/.test(unit) ? numeric / 1000 : numeric;
+  };
+
+  let match = normalized.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|g|gram|grams)\s*(?:per|\/)?\s*(?:each|ea|pc|pcs|piece|pieces)\b/);
+  if (match) {
+    return parseMassToKg(match[1], match[2]);
+  }
+
+  match = normalized.match(/(?:each|ea|pc|pcs|piece|pieces)\s*(?:=|is|~|about|approx(?:\.)?)?\s*(\d+(?:\.\d+)?)\s*(kg|kgs|g|gram|grams)\b/);
+  if (match) {
+    return parseMassToKg(match[1], match[2]);
+  }
+
+  match = normalized.match(/(\d+(?:\.\d+)?)\s*(?:pcs?|pieces?|each)\s*(?:per|\/)\s*(\d+(?:\.\d+)?)\s*(kg|kgs)\b/);
+  if (match) {
+    const pieceCount = Number(match[1]);
+    const totalKg = Number(match[2]);
+    if (Number.isFinite(pieceCount) && pieceCount > 0 && Number.isFinite(totalKg) && totalKg > 0) {
+      return totalKg / pieceCount;
+    }
+  }
+
+  match = normalized.match(/(\d+(?:\.\d+)?)\s*(kg|kgs)\s*(?:for|\/)\s*(\d+(?:\.\d+)?)\s*(?:pcs?|pieces?|each)\b/);
+  if (match) {
+    const totalKg = Number(match[1]);
+    const pieceCount = Number(match[3]);
+    if (Number.isFinite(pieceCount) && pieceCount > 0 && Number.isFinite(totalKg) && totalKg > 0) {
+      return totalKg / pieceCount;
+    }
+  }
+
+  return null;
+}
+
+function parseRemarkUnitKgEquivalent(remarks) {
+  const normalized = String(remarks ?? '')
+    .toLowerCase()
+    .replace(/,/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!normalized) {
+    return null;
+  }
+
+  // Treat a plain mass note like "24.3 KG" as KG equivalent per selling unit.
+  const match = normalized.match(/(?:^|\b)(\d+(?:\.\d+)?)\s*(kg|kgs|kilogram|kilograms)\b/);
+  if (!match) {
+    return null;
+  }
+
+  const parsed = Number(match[1]);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return null;
+  }
+
+  return parsed;
+}
+
+function getCategoryCodeFromItemCode(itemCode) {
+  const match = String(itemCode ?? '').trim().toUpperCase().match(/^ATH-([A-Z]{3})/);
+  return match ? match[1] : '';
+}
+
+function isFreshProduceItem(itemCode, categoryName = '') {
+  const categoryCode = getCategoryCodeFromItemCode(itemCode);
+  if (categoryCode === 'FVG' || categoryCode === 'FFR') {
+    return true;
+  }
+
+  const normalizedCategory = normalizeHeader(categoryName);
+  return normalizedCategory.includes('fresh vegetables') || normalizedCategory.includes('fresh fruit');
+}
+
+function applyRemarkApproximatePieceWeight({ itemCode, categoryName, remarks, product }) {
+  if (!isFreshProduceItem(itemCode, categoryName)) {
+    return product;
+  }
+
+  const approxFromRemarks = parseRemarkApproxPieceWeightKg(remarks);
+  if (!Number.isFinite(approxFromRemarks) || approxFromRemarks <= 0) {
+    return product;
+  }
+
+  return {
+    ...product,
+    approxPieceWeightKg: approxFromRemarks
   };
 }
 
@@ -411,6 +518,26 @@ function parseRowsFromSheet(sheet) {
   return xlsx.utils.sheet_to_json(sheet, { header: 1, defval: '' });
 }
 
+function hasRowContent(rows) {
+  return rows.some((row) => row.some((cell) => String(cell ?? '').trim()));
+}
+
+function parseRowsFromFirstNonEmptySheet(workbook) {
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) {
+      continue;
+    }
+
+    const rows = parseRowsFromSheet(sheet);
+    if (hasRowContent(rows)) {
+      return rows;
+    }
+  }
+
+  return [];
+}
+
 function findPriceListHeaderRow(rows, aliasesByColumn, maxScanRows = 20) {
   return rows.findIndex((row, index) => {
     if (index >= maxScanRows) {
@@ -433,6 +560,18 @@ function getColumnIndexes(headerRow, aliasesByColumn) {
       normalizedHeader.findIndex((cell) => aliases.includes(cell))
     ])
   );
+}
+
+function getPreferredHeaderIndex(headerRow, aliasesInPriorityOrder) {
+  const normalizedHeader = headerRow.map(normalizeHeader);
+  for (const alias of aliasesInPriorityOrder) {
+    const index = normalizedHeader.findIndex((cell) => cell === alias);
+    if (index >= 0) {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 function parseStandardPriceList(rows) {
@@ -477,12 +616,23 @@ function parseAthenaWorkbook(workbook) {
     }
 
     const indexes = getColumnIndexes(rows[headerRowIndex], ATHENA_PRICE_LIST_HEADERS);
+    const preferredProductIndex = getPreferredHeaderIndex(rows[headerRowIndex], ATHENA_PRICE_LIST_HEADERS.product);
+    if (preferredProductIndex >= 0) {
+      indexes.product = preferredProductIndex;
+    }
     const dataRows = rows.slice(headerRowIndex + 1);
 
-    for (const row of dataRows) {
+    for (const [rowOffset, row] of dataRows.entries()) {
       const productName = String(row[indexes.product] ?? '').trim();
       const price = parseNumber(row[indexes.price]);
       const itemCode = String(row[indexes.itemCode] ?? '').trim();
+      const remarks = indexes.remarks >= 0 ? String(row[indexes.remarks] ?? '').trim() : '';
+      const sourceRowNumber = headerRowIndex + 2 + rowOffset;
+      const unitKgEquivalent = parseRemarkUnitKgEquivalent(remarks);
+      const forceKgConversion = sourceRowNumber >= 521
+        && sourceRowNumber <= 615
+        && Number.isFinite(unitKgEquivalent)
+        && unitKgEquivalent > 0;
       const structuredSupplyMetadata = buildStructuredSupplyMetadata(
         indexes.supplierQuantity >= 0 ? row[indexes.supplierQuantity] : null,
         indexes.supplierUnit >= 0 ? row[indexes.supplierUnit] : ''
@@ -510,7 +660,7 @@ function parseAthenaWorkbook(workbook) {
 
       const identity = buildCatalogIdentity(productName, unit, itemCode, sheetName, products.length);
 
-      products.push(applyApproximatePieceWeight(itemCode, {
+      const baseProduct = {
         id: products.length + 1,
         itemCode,
         catalogKey: identity.catalogKey,
@@ -521,7 +671,18 @@ function parseAthenaWorkbook(workbook) {
         unit,
         supplyOptions: supplyUnitMetadata.supplyOptions,
         unitType: supplyUnitMetadata.unitType,
+        sourceRowNumber,
+        unitKgEquivalent,
+        forceKgConversion,
         price
+      };
+
+      const productWithOverrides = applyApproximatePieceWeight(itemCode, baseProduct);
+      products.push(applyRemarkApproximatePieceWeight({
+        itemCode,
+        categoryName: sheetName,
+        remarks,
+        product: productWithOverrides
       }));
     }
   }
@@ -529,13 +690,14 @@ function parseAthenaWorkbook(workbook) {
   return products;
 }
 
-export async function parseRequisitionFile(filePath) {
-  const extension = path.extname(filePath).toLowerCase();
+export async function parseRequisitionFile(filePath, originalFileName = '') {
+  const extensionSource = String(originalFileName || filePath || '');
+  const extension = path.extname(extensionSource).toLowerCase();
   const rawContent = extension === '.csv'
     ? await fs.readFile(filePath, 'utf8')
     : await fs.readFile(filePath);
   const workbook = readWorkbook(filePath, rawContent);
-  const rows = parseRowsFromSheet(workbook.Sheets[workbook.SheetNames[0]]);
+  const rows = parseRowsFromFirstNonEmptySheet(workbook);
 
   if (!rows.length) {
     throw new Error('The uploaded requisition file is empty.');

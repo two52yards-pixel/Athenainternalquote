@@ -23,10 +23,123 @@ th:nth-child(10), td:nth-child(10) {
   margin-top: 40px;
 }
 /* Make the matched product dropdown column wider */
-td select.matched-product, td .matched-product {
+td select.matched-product, td .matched-product, td .matched-product-trigger {
   min-width: 175px;
   max-width: 230px;
   width: 100%;
+}
+
+.row-product-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.matched-product-trigger {
+  display: block;
+  text-align: left;
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  background: #f8fafc;
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.matched-product-trigger::after {
+  content: '▼';
+  float: right;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.matched-product-trigger:hover:not(:disabled) {
+  transform: none;
+  background: #fff;
+  color: var(--text);
+}
+
+.matched-product-trigger:focus {
+  border-color: var(--gold);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(200,169,106,0.15);
+  outline: none;
+}
+
+.matched-product-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 24px rgba(11,31,58,0.12);
+  z-index: 20;
+  overflow: hidden;
+}
+
+.row-product-dropdown.open-upward .matched-product-menu {
+  top: auto;
+  bottom: calc(100% + 2px);
+}
+
+.matched-product-search {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 12px 14px;
+  height: 43px;
+  background: #f8fafc;
+}
+
+.matched-product-search:focus {
+  outline: none;
+  background: #fff;
+}
+
+.matched-product-options {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.matched-product-option {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid rgba(0,0,0,0.04);
+  border-radius: 0;
+  background: #fff;
+  color: var(--text);
+  text-align: left;
+  padding: 12px 14px;
+  min-height: 43px;
+  font-weight: 400;
+}
+
+.matched-product-option:hover,
+.matched-product-option.is-active {
+  background: #f0f4fa;
+  color: var(--text);
+  transform: none;
+}
+
+.matched-product-option.is-selected {
+  background: #edf3ff;
+}
+
+.matched-product-option.no-results {
+  cursor: default;
+  color: var(--muted);
+  background: #fbfcfe;
+}
+
+.matched-product-category {
+  color: var(--muted);
+  font-size: 12px;
 }
 /* ================================
    B2B INSPIRED MAIN DESIGN

@@ -1,6 +1,7 @@
 const state = {
   currentQuote: null,
-  products: []
+  products: [],
+  productSearchIndex: []
 };
 
 const form = document.querySelector('#quote-form');
@@ -194,14 +195,36 @@ function parsePositiveNumber(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function getApproximateUnitMatch(request, product, option) {
-  const approxPieceWeightKg = Number(product?.approxPieceWeightKg);
-
-  if (!Number.isFinite(approxPieceWeightKg) || approxPieceWeightKg <= 0 || request.customerQuantity === null) {
-    return null;
+function isForceKgConversionProduct(product) {
+  const unitKgEquivalent = Number(product?.unitKgEquivalent);
+  if (!Number.isFinite(unitKgEquivalent) || unitKgEquivalent <= 0) {
+    return false;
   }
 
-  if (request.customerUnitType === 'pcs' && option.unitType === 'kg') {
+  if (product?.forceKgConversion === true) {
+    return true;
+  }
+
+  const sourceRowNumber = Number(product?.sourceRowNumber);
+  return Number.isInteger(sourceRowNumber) && sourceRowNumber >= 521 && sourceRowNumber <= 615;
+}
+
+function withForcedKgRequest(request, product) {
+  if (!isForceKgConversionProduct(product)) {
+    return request;
+  }
+
+  return {
+    ...request,
+    customerUnitType: 'kg'
+  };
+}
+
+function getApproximateUnitMatch(request, product, option) {
+  const approxPieceWeightKg = Number(product?.approxPieceWeightKg);
+  const unitKgEquivalent = Number(product?.unitKgEquivalent);
+
+  if (request.customerUnitType === 'pcs' && option.unitType === 'kg' && Number.isFinite(approxPieceWeightKg) && approxPieceWeightKg > 0 && request.customerQuantity !== null) {
     return {
       exactUnitMatch: true,
       effectiveCustomerQuantity: request.customerQuantity * approxPieceWeightKg,
@@ -209,11 +232,21 @@ function getApproximateUnitMatch(request, product, option) {
     };
   }
 
-  if (request.customerUnitType === 'kg' && option.unitType === 'pcs') {
+  if (request.customerUnitType === 'kg' && option.unitType === 'pcs' && Number.isFinite(approxPieceWeightKg) && approxPieceWeightKg > 0 && request.customerQuantity !== null) {
     return {
       exactUnitMatch: true,
       effectiveCustomerQuantity: request.customerQuantity / approxPieceWeightKg,
-      deliveredUnitType: 'pcs'
+      deliveredUnitType: 'pcs',
+      unitQuantityForFulfillment: option.unitQuantity
+    };
+  }
+
+  if (request.customerUnitType === 'kg' && option.orderUnitType === 'pack' && request.customerQuantity !== null && Number.isFinite(unitKgEquivalent) && unitKgEquivalent > 0) {
+    return {
+      exactUnitMatch: true,
+      effectiveCustomerQuantity: request.customerQuantity,
+      deliveredUnitType: 'kg',
+      unitQuantityForFulfillment: Math.max((Number(option.unitQuantity) || 1) * unitKgEquivalent, unitKgEquivalent)
     };
   }
 
@@ -225,11 +258,13 @@ function selectSupplyOption(product, request) {
     return null;
   }
 
+  const effectiveRequest = withForcedKgRequest(request, product);
+
   const options = Array.isArray(product.supplyOptions) && product.supplyOptions.length
     ? product.supplyOptions
     : [{ label: product.unit || '', unitQuantity: 1, unitType: normalizeUnitType(product.unit), orderUnitType: 'pack', descriptor: '', isFallback: true }];
-  const customerUnitType = request.customerUnitType;
-  const descriptor = requestDescriptor(request.rawRequestedUnit);
+  const customerUnitType = effectiveRequest.customerUnitType;
+  const descriptor = requestDescriptor(effectiveRequest.rawRequestedUnit);
   const isEggProduct = /\begg\b/i.test(String(product.productName || ''));
 
   let bestMatch = null;
@@ -237,8 +272,9 @@ function selectSupplyOption(product, request) {
   for (const option of options) {
     let score = option.isFallback ? -5 : 5;
     let exactUnitMatch = false;
-    let effectiveCustomerQuantity = request.customerQuantity;
+    let effectiveCustomerQuantity = effectiveRequest.customerQuantity;
     let deliveredUnitType = option.unitType || '';
+    let unitQuantityForFulfillment = Number(option.unitQuantity) || 1;
 
     if (customerUnitType) {
       if (option.unitType === customerUnitType) {
@@ -248,12 +284,13 @@ function selectSupplyOption(product, request) {
         score += 85;
         exactUnitMatch = true;
       } else {
-        const approximateMatch = getApproximateUnitMatch(request, product, option);
+        const approximateMatch = getApproximateUnitMatch(effectiveRequest, product, option);
         if (approximateMatch) {
           score += 95;
           exactUnitMatch = true;
           effectiveCustomerQuantity = approximateMatch.effectiveCustomerQuantity;
           deliveredUnitType = approximateMatch.deliveredUnitType;
+          unitQuantityForFulfillment = Number(approximateMatch.unitQuantityForFulfillment) || unitQuantityForFulfillment;
         } else {
           score -= 40;
         }
@@ -268,26 +305,30 @@ function selectSupplyOption(product, request) {
       }
     }
 
-    if (Number.isFinite(effectiveCustomerQuantity) && effectiveCustomerQuantity > 0 && exactUnitMatch && Number(option.unitQuantity) > 0) {
-      if (effectiveCustomerQuantity === Number(option.unitQuantity)) {
+    if (Number.isFinite(effectiveCustomerQuantity) && effectiveCustomerQuantity > 0 && exactUnitMatch && unitQuantityForFulfillment > 0) {
+      if (effectiveCustomerQuantity === unitQuantityForFulfillment) {
         score += 30;
       } else {
-        const remainder = effectiveCustomerQuantity % Number(option.unitQuantity);
+        const remainder = effectiveCustomerQuantity % unitQuantityForFulfillment;
         if (remainder === 0) {
           score += 12;
         }
       }
 
-      const estimatedSupplyCount = Math.ceil(effectiveCustomerQuantity / Number(option.unitQuantity));
+      const estimatedSupplyCount = Math.ceil(effectiveCustomerQuantity / unitQuantityForFulfillment);
       score -= estimatedSupplyCount * 0.01;
 
+      if (estimatedSupplyCount > 500) {
+        score -= 15;
+      }
+
       if (isEggProduct && customerUnitType === 'pcs' && effectiveCustomerQuantity >= 1000) {
-        score += Number(option.unitQuantity) / 10;
+        score += unitQuantityForFulfillment / 10;
       }
     }
 
     if (!bestMatch || score > bestMatch.score) {
-      bestMatch = { option, score, exactUnitMatch, effectiveCustomerQuantity, deliveredUnitType };
+      bestMatch = { option, score, exactUnitMatch, effectiveCustomerQuantity, deliveredUnitType, unitQuantityForFulfillment };
     }
   }
 
@@ -333,15 +374,199 @@ async function requestJson(url, options = {}) {
   return payload;
 }
 
-function getProductOptions(selectedValue) {
-  const emptyOption = '<option value="">Review required</option>';
-  const options = state.products.map((product) => {
-    const optionValue = product.catalogKey || product.productName;
-    const selected = optionValue === selectedValue ? 'selected' : '';
-    return `<option value="${escapeHtml(optionValue)}" ${selected}>${escapeHtml(product.displayName || product.productName)}</option>`;
-  });
+function normalizeSearchValue(value) {
+  return String(value || '').trim().toLowerCase();
+}
 
-  return [emptyOption, ...options].join('');
+function getProductCategory(product) {
+  return String(
+    product?.category
+    || product?.categoryName
+    || product?.categoryLabel
+    || product?.productCategory
+    || product?.group
+    || product?.department
+    || ''
+  ).trim();
+}
+
+function buildProductSearchIndex() {
+  state.productSearchIndex = state.products.map((product) => {
+    const key = product.catalogKey || product.productName;
+    const label = product.displayName || product.productName || '';
+    const category = getProductCategory(product);
+    const searchable = normalizeSearchValue(`${label} ${category}`);
+
+    return { key, label, category, searchable };
+  });
+}
+
+function getProductLabelByKey(value) {
+  if (!value) {
+    return 'Review required';
+  }
+
+  const indexed = state.productSearchIndex.find((entry) => entry.key === value);
+  return indexed ? indexed.label : String(value);
+}
+
+function getFilteredProductEntries(searchTerm) {
+  const normalizedTerm = normalizeSearchValue(searchTerm);
+  if (!normalizedTerm) {
+    return state.productSearchIndex;
+  }
+
+  // Filter against both product label and category text for category-aware matching.
+  return state.productSearchIndex.filter((entry) => entry.searchable.includes(normalizedTerm));
+}
+
+function renderMatchedProductOptions(selectedValue, searchTerm = '') {
+  const entries = getFilteredProductEntries(searchTerm);
+  if (!entries.length) {
+    return '<div class="matched-product-option no-results" aria-disabled="true">No matching items found</div>';
+  }
+
+  return entries.map((entry) => {
+    const isSelected = entry.key === selectedValue;
+    const categorySuffix = entry.category ? ` <span class="matched-product-category">${escapeHtml(entry.category)}</span>` : '';
+    return `
+      <button type="button" class="matched-product-option ${isSelected ? 'is-selected' : ''}" data-value="${escapeHtml(entry.key)}" role="option" aria-selected="${isSelected ? 'true' : 'false'}">
+        <span class="matched-product-label">${escapeHtml(entry.label)}</span>${categorySuffix}
+      </button>
+    `;
+  }).join('');
+}
+
+function renderMatchedProductDropdown(selectedValue, isDisabled) {
+  const selectedLabel = getProductLabelByKey(selectedValue);
+  const disabledAttribute = isDisabled ? 'disabled' : '';
+
+  return `
+    <div class="row-product-dropdown ${isDisabled ? 'is-disabled' : ''}" data-open="false">
+      <button type="button" class="row-select matched-product-trigger" ${disabledAttribute} aria-haspopup="listbox" aria-expanded="false">
+        ${escapeHtml(selectedLabel)}
+      </button>
+      <input type="hidden" class="matched-product" value="${escapeHtml(selectedValue || '')}" ${disabledAttribute}>
+      <div class="matched-product-menu" hidden>
+        <input type="text" class="matched-product-search" placeholder="Search items..." aria-label="Search items">
+        <div class="matched-product-options" role="listbox">
+          ${renderMatchedProductOptions(selectedValue, '')}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function closeMatchedProductDropdown(dropdown) {
+  if (!dropdown) {
+    return;
+  }
+
+  dropdown.dataset.open = 'false';
+  const trigger = dropdown.querySelector('.matched-product-trigger');
+  const menu = dropdown.querySelector('.matched-product-menu');
+  const searchInput = dropdown.querySelector('.matched-product-search');
+  if (trigger) {
+    trigger.setAttribute('aria-expanded', 'false');
+  }
+  if (menu) {
+    menu.hidden = true;
+  }
+  if (searchInput) {
+    searchInput.value = '';
+  }
+  dropdown.classList.remove('open-upward');
+}
+
+function closeAllMatchedProductDropdowns(exceptDropdown = null) {
+  for (const dropdown of resultsTableBody.querySelectorAll('.row-product-dropdown[data-open="true"]')) {
+    if (dropdown !== exceptDropdown) {
+      closeMatchedProductDropdown(dropdown);
+    }
+  }
+}
+
+function updateProductOptionHighlight(dropdown, nextIndex) {
+  const options = Array.from(dropdown.querySelectorAll('.matched-product-option:not(.no-results)'));
+  if (!options.length) {
+    dropdown.dataset.activeIndex = '-1';
+    return;
+  }
+
+  const boundedIndex = Math.max(0, Math.min(nextIndex, options.length - 1));
+  dropdown.dataset.activeIndex = String(boundedIndex);
+  options.forEach((option, index) => {
+    option.classList.toggle('is-active', index === boundedIndex);
+  });
+  options[boundedIndex].scrollIntoView({ block: 'nearest' });
+}
+
+function renderFilteredProductOptions(dropdown, searchTerm) {
+  const selectedValue = dropdown.querySelector('.matched-product')?.value || '';
+  const optionsContainer = dropdown.querySelector('.matched-product-options');
+  if (!optionsContainer) {
+    return;
+  }
+
+  optionsContainer.innerHTML = renderMatchedProductOptions(selectedValue, searchTerm);
+  const selectedOption = optionsContainer.querySelector('.matched-product-option.is-selected:not(.no-results)');
+  const allOptions = optionsContainer.querySelectorAll('.matched-product-option:not(.no-results)');
+  const initialIndex = selectedOption
+    ? Array.from(allOptions).indexOf(selectedOption)
+    : 0;
+  updateProductOptionHighlight(dropdown, initialIndex);
+}
+
+function openMatchedProductDropdown(dropdown) {
+  if (!dropdown || dropdown.classList.contains('is-disabled')) {
+    return;
+  }
+
+  closeAllMatchedProductDropdowns(dropdown);
+
+  const trigger = dropdown.querySelector('.matched-product-trigger');
+  const menu = dropdown.querySelector('.matched-product-menu');
+  const searchInput = dropdown.querySelector('.matched-product-search');
+  if (!trigger || !menu || !searchInput) {
+    return;
+  }
+
+  dropdown.dataset.open = 'true';
+  trigger.setAttribute('aria-expanded', 'true');
+  menu.hidden = false;
+
+  // If there is not enough room under the trigger (common on last table rows), open upward.
+  const triggerRect = trigger.getBoundingClientRect();
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  const estimatedMenuHeight = 290;
+  const spaceBelow = viewportHeight - triggerRect.bottom;
+  const spaceAbove = triggerRect.top;
+  const shouldOpenUpward = spaceBelow < estimatedMenuHeight && spaceAbove > spaceBelow;
+  dropdown.classList.toggle('open-upward', shouldOpenUpward);
+
+  searchInput.value = '';
+  renderFilteredProductOptions(dropdown, '');
+  searchInput.focus();
+}
+
+function selectMatchedProductOption(optionButton) {
+  const dropdown = optionButton.closest('.row-product-dropdown');
+  if (!dropdown || optionButton.classList.contains('no-results')) {
+    return;
+  }
+
+  const value = optionButton.dataset.value || '';
+  const hiddenInput = dropdown.querySelector('.matched-product');
+  const trigger = dropdown.querySelector('.matched-product-trigger');
+  if (!hiddenInput || !trigger) {
+    return;
+  }
+
+  hiddenInput.value = value;
+  trigger.textContent = getProductLabelByKey(value);
+  closeMatchedProductDropdown(dropdown);
+
+  hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
 }
 
 function updateSummary(quote) {
@@ -508,15 +733,13 @@ function renderQuote(quote) {
         <td>${item.lineNumber}</td>
         <td>${escapeHtml(item.originalItem)}</td>
         <td>
-          <select class="row-select matched-product" ${disabledAttribute}>
-            ${getProductOptions(item.matchedProductKey || item.matchedProduct)}
-          </select>
+          ${renderMatchedProductDropdown(item.matchedProductKey || item.matchedProduct, isUnavailable)}
         </td>
         <td><span class="status-pill ${statusClass}">${displayStatus(item.status)}</span></td>
-        <td><input class="row-input quantity" type="number" min="0" step="0.01" value="${item.quantity ?? ''}" ${disabledAttribute}></td>
+        <td><input class="row-input quantity" type="number" min="0" step="1" value="${item.quantity ?? ''}" ${disabledAttribute}></td>
         <td class="requested-unit-display">${escapeHtml(item.requestedUnit || item.customerUnitType || '')}</td>
         <td>
-          <input class="row-input supplier-quantity-input" type="number" min="0" step="0.01" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
+          <input class="row-input supplier-quantity-input" type="number" min="0" step="1" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
         </td>
         <td class="supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
         <td class="total-supplied">${escapeHtml(getTotalSuppliedText(item))}</td>
@@ -552,7 +775,9 @@ function refreshRow(row, changedField = '') {
   const requestedUnit = requestedUnitInput ? requestedUnitInput.value.trim() : (requestedUnitDisplay ? requestedUnitDisplay.textContent.trim() : '');
   const numericQuantity = quantityValue === '' ? null : Number(quantityValue);
   const request = resolveCustomerRequest(numericQuantity, requestedUnit);
-  const selectedOption = selectSupplyOption(matchedProduct || null, request);
+  const effectiveRequest = withForcedKgRequest(request, matchedProduct || null);
+  const forcedKgMode = isForceKgConversionProduct(matchedProduct || null);
+  const selectedOption = selectSupplyOption(matchedProduct || null, effectiveRequest);
   const shouldResetSupplierOverride = ['matched-product', 'quantity', 'requested-unit'].includes(changedField);
   const requestedSupplierQuantity = changedField === 'supplier-quantity-input'
     ? parsePositiveNumber(supplierQuantityInput.value)
@@ -566,10 +791,16 @@ function refreshRow(row, changedField = '') {
     item.matchedProductKey = matchedProduct.catalogKey || matchedProduct.productName;
     item.matchedProduct = matchedProduct.productName;
     item.matchedProductDisplay = matchedProduct.displayName || matchedProduct.productName;
+    item.sourceRowNumber = Number.isFinite(Number(matchedProduct.sourceRowNumber)) ? Number(matchedProduct.sourceRowNumber) : null;
+    item.unitKgEquivalent = Number.isFinite(Number(matchedProduct.unitKgEquivalent)) ? Number(matchedProduct.unitKgEquivalent) : null;
+    item.forceKgConversion = matchedProduct.forceKgConversion === true;
   } else {
     item.matchedProductKey = '';
     item.matchedProduct = '';
     item.matchedProductDisplay = '';
+    item.sourceRowNumber = null;
+    item.unitKgEquivalent = null;
+    item.forceKgConversion = false;
     item.price = 0;
     item.unit = '';
     if (priceDisplay) priceDisplay.textContent = '0.00';
@@ -587,11 +818,11 @@ function refreshRow(row, changedField = '') {
     item.supplyQuantity = 1;
     item.status = 'MANUAL CHECK';
   } else {
-    if (!Number.isFinite(request.customerQuantity) || request.customerQuantity <= 0) {
+    if (!Number.isFinite(effectiveRequest.customerQuantity) || effectiveRequest.customerQuantity <= 0) {
       reviewFlags.push('quantity missing');
     }
 
-    if (!request.customerUnitType) {
+    if (!effectiveRequest.customerUnitType) {
       reviewFlags.push('unit missing');
     }
 
@@ -604,19 +835,23 @@ function refreshRow(row, changedField = '') {
         : request.customerQuantity;
 
       if (selectedOption.exactUnitMatch && Number.isFinite(effectiveCustomerQuantity) && effectiveCustomerQuantity > 0) {
-        if (request.customerUnitType === 'pack') {
-          item.supplyQuantity = Math.max(1, Math.ceil(request.customerQuantity));
+        const unitQuantityForFulfillment = Number.isFinite(selectedOption.unitQuantityForFulfillment)
+          ? selectedOption.unitQuantityForFulfillment
+          : Number(selectedOption.option.unitQuantity);
+
+        if (effectiveRequest.customerUnitType === 'pack' && !forcedKgMode) {
+          item.supplyQuantity = Math.max(1, Math.ceil(effectiveRequest.customerQuantity));
           item.deliveredQuantity = item.supplyQuantity;
           item.deliveredUnitType = 'pack';
-        } else if (Number(selectedOption.option.unitQuantity) > 0) {
-          item.supplyQuantity = Math.max(1, Math.ceil(effectiveCustomerQuantity / Number(selectedOption.option.unitQuantity)));
-          item.deliveredQuantity = item.supplyQuantity * Number(selectedOption.option.unitQuantity);
+        } else if (unitQuantityForFulfillment > 0) {
+          item.supplyQuantity = Math.max(1, Math.ceil(effectiveCustomerQuantity / unitQuantityForFulfillment));
+          item.deliveredQuantity = item.supplyQuantity * unitQuantityForFulfillment;
           item.deliveredUnitType = selectedOption.deliveredUnitType || selectedOption.option.unitType || '';
         } else {
           item.supplyQuantity = 1;
         }
       } else {
-        if (request.customerUnitType) {
+        if (effectiveRequest.customerUnitType) {
           reviewFlags.push('unit mismatch');
         }
         item.supplyQuantity = 1;
@@ -624,14 +859,19 @@ function refreshRow(row, changedField = '') {
     }
 
     if (requestedSupplierQuantity) {
-      item.supplyQuantity = requestedSupplierQuantity;
-      item.supplierQuantityOverride = requestedSupplierQuantity;
+      const wholeSupplierQuantity = Math.max(1, Math.round(requestedSupplierQuantity));
+      item.supplyQuantity = wholeSupplierQuantity;
+      item.supplierQuantityOverride = wholeSupplierQuantity;
 
-      if (selectedOption && request.customerUnitType === 'pack') {
-        item.deliveredQuantity = requestedSupplierQuantity;
+      const unitQuantityForFulfillment = Number.isFinite(selectedOption?.unitQuantityForFulfillment)
+        ? selectedOption.unitQuantityForFulfillment
+        : Number(selectedOption?.option?.unitQuantity);
+
+      if (selectedOption && effectiveRequest.customerUnitType === 'pack' && !forcedKgMode) {
+        item.deliveredQuantity = wholeSupplierQuantity;
         item.deliveredUnitType = 'pack';
-      } else if (selectedOption && Number(selectedOption.option.unitQuantity) > 0) {
-        item.deliveredQuantity = Number((requestedSupplierQuantity * Number(selectedOption.option.unitQuantity)).toFixed(3));
+      } else if (selectedOption && unitQuantityForFulfillment > 0) {
+        item.deliveredQuantity = Number((wholeSupplierQuantity * unitQuantityForFulfillment).toFixed(3));
         item.deliveredUnitType = selectedOption.deliveredUnitType || selectedOption.option.unitType || '';
       } else {
         item.deliveredQuantity = null;
@@ -704,6 +944,16 @@ form.addEventListener('submit', async (event) => {
 // TABLE INTERACTIONS
 // =====================
 resultsTableBody.addEventListener('input', (event) => {
+  if (event.target.classList.contains('matched-product-search')) {
+    const dropdown = event.target.closest('.row-product-dropdown');
+    if (!dropdown) {
+      return;
+    }
+
+    renderFilteredProductOptions(dropdown, event.target.value);
+    return;
+  }
+
   const row = event.target.closest('tr');
   if (!row || !state.currentQuote) {
     return;
@@ -713,6 +963,10 @@ resultsTableBody.addEventListener('input', (event) => {
 });
 
 resultsTableBody.addEventListener('change', (event) => {
+  if (event.target.classList.contains('matched-product-search')) {
+    return;
+  }
+
   const row = event.target.closest('tr');
   if (!row || !state.currentQuote) {
     return;
@@ -722,6 +976,28 @@ resultsTableBody.addEventListener('change', (event) => {
 });
 
 resultsTableBody.addEventListener('click', (event) => {
+  const productTrigger = event.target.closest('.matched-product-trigger');
+  if (productTrigger) {
+    const dropdown = productTrigger.closest('.row-product-dropdown');
+    if (!dropdown) {
+      return;
+    }
+
+    const isOpen = dropdown.dataset.open === 'true';
+    if (isOpen) {
+      closeMatchedProductDropdown(dropdown);
+    } else {
+      openMatchedProductDropdown(dropdown);
+    }
+    return;
+  }
+
+  const productOption = event.target.closest('.matched-product-option');
+  if (productOption) {
+    selectMatchedProductOption(productOption);
+    return;
+  }
+
   const toggleButton = event.target.closest('.unavailable-toggle');
   if (toggleButton && state.currentQuote) {
     const row = toggleButton.closest('tr');
@@ -762,11 +1038,62 @@ resultsTableBody.addEventListener('click', (event) => {
 
   const currentValue = parsePositiveNumber(supplierQuantityInput.value) || 1;
   const nextValue = button.classList.contains('supplier-quantity-decrement')
-    ? Math.max(0.01, currentValue - 1)
+    ? Math.max(1, Math.round(currentValue) - 1)
     : currentValue + 1;
 
-  supplierQuantityInput.value = String(Number(nextValue.toFixed(2)));
+  supplierQuantityInput.value = String(Math.round(nextValue));
   refreshRow(row, 'supplier-quantity-input');
+});
+
+resultsTableBody.addEventListener('keydown', (event) => {
+  if (!event.target.classList.contains('matched-product-search')) {
+    return;
+  }
+
+  const dropdown = event.target.closest('.row-product-dropdown');
+  if (!dropdown) {
+    return;
+  }
+
+  const options = Array.from(dropdown.querySelectorAll('.matched-product-option:not(.no-results)'));
+  const activeIndex = Number(dropdown.dataset.activeIndex || 0);
+
+  if (event.key === 'ArrowDown') {
+    event.preventDefault();
+    updateProductOptionHighlight(dropdown, activeIndex + 1);
+    return;
+  }
+
+  if (event.key === 'ArrowUp') {
+    event.preventDefault();
+    updateProductOptionHighlight(dropdown, activeIndex - 1);
+    return;
+  }
+
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    if (options.length) {
+      const option = options[Math.max(0, Math.min(activeIndex, options.length - 1))];
+      selectMatchedProductOption(option);
+    }
+    return;
+  }
+
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    closeMatchedProductDropdown(dropdown);
+  }
+});
+
+document.addEventListener('click', (event) => {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+
+  const insideDropdown = event.target.closest('.row-product-dropdown');
+  if (!insideDropdown) {
+    closeAllMatchedProductDropdowns();
+  }
 });
 
 // =====================
@@ -945,6 +1272,7 @@ async function bootstrap() {
       loadHistory()
     ]);
     state.products = products;
+    buildProductSearchIndex();
 
     const rememberedQuoteId = getRememberedQuoteId();
     if (rememberedQuoteId) {

@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
@@ -6,6 +7,7 @@ import PDFDocument from 'pdfkit';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const orderTemplatePath = path.resolve(__dirname, '..', 'Order.xlsx');
+const defaultHeaderImagePath = path.resolve(__dirname, '..', '50 land.png');
 
 const COMPANY_NAME = 'Athena Marine Supplies Ltd';
 const COMPANY_LINES = [
@@ -167,6 +169,13 @@ function setMergedCellValue(worksheet, range, value) {
   masterCell.value = value;
 }
 
+function canWriteIndependentCellBlock(worksheet, addresses) {
+  return addresses.every((address) => {
+    const cell = worksheet.getCell(address);
+    return !cell.isMerged || cell.master?.address === address;
+  });
+}
+
 function buildSpecificationText(item) {
   if (item.status === 'UNAVAILABLE') {
     return 'Unavailable';
@@ -182,6 +191,132 @@ function buildSpecificationText(item) {
   }
 
   return baseText;
+}
+
+function getUnitType(value) {
+  const text = String(value ?? '').trim().toLowerCase();
+  if (!text) {
+    return '';
+  }
+
+  if (/ml\b/.test(text)) {
+    return 'ML';
+  }
+
+  if (/(?:ltr|ltrs|liter|liters|litre|litres|l)\b/.test(text)) {
+    return 'LTR';
+  }
+
+  if (/kg\b/.test(text)) {
+    return 'KG';
+  }
+
+  if (/g\b/.test(text)) {
+    return 'G';
+  }
+
+  if (/\b(?:pcs|pc|each|ea|unit)\b/.test(text)) {
+    return 'PCS';
+  }
+
+  if (/^[a-z]{1,6}$/.test(text)) {
+    return text.toUpperCase();
+  }
+
+  return '';
+}
+
+function writeMergedValue(worksheet, address, value) {
+  const cell = worksheet.getCell(address);
+  const target = cell.isMerged ? cell.master : cell;
+  target.value = value;
+}
+
+function cloneCellValue(value) {
+  if (value == null) {
+    return value;
+  }
+
+  if (value instanceof Date) {
+    return new Date(value);
+  }
+
+  if (typeof value === 'object') {
+    return JSON.parse(JSON.stringify(value));
+  }
+
+  return value;
+}
+
+function duplicateWorksheetTemplate(workbook, sourceWorksheet, targetName) {
+  const targetWorksheet = workbook.addWorksheet(targetName);
+
+  targetWorksheet.properties = cloneStyle(sourceWorksheet.properties) || {};
+  targetWorksheet.pageSetup = cloneStyle(sourceWorksheet.pageSetup) || {};
+  targetWorksheet.views = cloneStyle(sourceWorksheet.views) || [];
+  targetWorksheet.state = sourceWorksheet.state;
+
+  sourceWorksheet.columns.forEach((column, index) => {
+    const targetColumn = targetWorksheet.getColumn(index + 1);
+    targetColumn.width = column.width;
+    targetColumn.hidden = column.hidden;
+    targetColumn.outlineLevel = column.outlineLevel;
+    targetColumn.style = cloneStyle(column.style) || {};
+  });
+
+  const maxRow = sourceWorksheet.rowCount;
+  const maxColumn = Math.max(sourceWorksheet.columnCount, 11);
+
+  for (let rowNumber = 1; rowNumber <= maxRow; rowNumber += 1) {
+    const sourceRow = sourceWorksheet.getRow(rowNumber);
+    const targetRow = targetWorksheet.getRow(rowNumber);
+    targetRow.height = sourceRow.height;
+    targetRow.hidden = sourceRow.hidden;
+    targetRow.outlineLevel = sourceRow.outlineLevel;
+
+    for (let columnNumber = 1; columnNumber <= maxColumn; columnNumber += 1) {
+      const sourceCell = sourceWorksheet.getCell(rowNumber, columnNumber);
+      const targetCell = targetWorksheet.getCell(rowNumber, columnNumber);
+      copyCellFormatting(sourceCell, targetCell);
+      targetCell.value = cloneCellValue(sourceCell.value);
+    }
+  }
+
+  for (const range of Object.keys(sourceWorksheet._merges || {})) {
+    targetWorksheet.mergeCells(range);
+  }
+
+  return targetWorksheet;
+}
+
+function writeItemsToWorksheet(worksheet, items, itemStartRow, itemEndRow) {
+  clearWorksheetRange(worksheet, itemStartRow, itemEndRow, 1, 6);
+
+  for (let index = 0; index < items.length; index += 1) {
+    const rowNumber = itemStartRow + index;
+    const item = items[index];
+
+    worksheet.getCell(`A${rowNumber}`).value = item.matchedProductKey || item.itemCode || '';
+    worksheet.getCell(`B${rowNumber}`).value = item.originalItem || '';
+    worksheet.getCell(`C${rowNumber}`).value = buildSpecificationText(item);
+    worksheet.getCell(`D${rowNumber}`).value = Number(item.supplyQuantity ?? 0) || 0;
+    worksheet.getCell(`E${rowNumber}`).value = getUnitType(item.unit);
+    worksheet.getCell(`F${rowNumber}`).value = Number(item.price || 0);
+  }
+}
+
+function ensureItemTotalMerge(worksheet, rowNumber) {
+  ensureMergedRange(worksheet, `G${rowNumber}:H${rowNumber}`);
+}
+
+function clearItemTotalMerge(worksheet, rowNumber) {
+  try {
+    if (worksheet.getCell(`G${rowNumber}`).isMerged || worksheet.getCell(`H${rowNumber}`).isMerged) {
+      worksheet.unMergeCells(`G${rowNumber}:H${rowNumber}`);
+    }
+  } catch {
+    // Ignore rows that are not merged or cannot be unmerged.
+  }
 }
 
 function styleWorkbookShell(worksheet) {
@@ -298,18 +433,18 @@ function styleItemRow(worksheet, rowNumber, item) {
 
   worksheet.getRow(rowNumber).height = estimateExcelRowHeight(item);
 
-  for (let column = 1; column <= 8; column += 1) {
+  for (let column = 1; column <= 6; column += 1) {
     applyCellStyle(worksheet.getCell(rowNumber, column), {
       font: {
-        name: column === 4 ? 'Cambria' : 'Aptos',
+        name: 'Aptos',
         size: 10,
         color: { argb: EXCEL_COLORS.ink },
         italic: item.status === 'UNAVAILABLE'
       },
       alignment: {
         vertical: 'middle',
-        horizontal: column >= 5 ? 'center' : 'left',
-        wrapText: column === 2 || column === 4 || column === 6
+        horizontal: 'left',
+        wrapText: column === 2 || column === 3
       },
       fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: fillColor } },
       border: standardBorder(borderColor)
@@ -359,45 +494,49 @@ function writeCompactFooter(worksheet, totalRow) {
 }
 
 function populateTemplateHeader(worksheet, quote) {
-  worksheet.getCell('E7').value = 'CUSTOMER DETAILS';
+  const quoteReference = quote.quoteReference || quote.quoteNumber || quote.id;
 
-  const detailRows = [
-    { row: 8, label: 'Client Name :', value: quote.clientName },
-    { row: 9, label: 'Vessel Name :', value: quote.vesselName },
-    { row: 10, label: 'IMO Number :', value: quote.imoNumber },
-    { row: 11, label: 'Scheduled Arrival :', value: formatDate(quote.scheduledArrival) },
-    { row: 12, label: 'Contact Email :', value: quote.contactEmail },
-    { row: 13, label: 'Agent Name :', value: quote.agentName }
-  ];
+  // Strict template targets (use merged master cell when the address is a merged child).
+  writeMergedValue(worksheet, 'H9', quoteReference);
+  writeMergedValue(worksheet, 'H10', quoteReference);
+  writeMergedValue(worksheet, 'H13', quote.clientName || '');
+  writeMergedValue(worksheet, 'H14', quote.vesselName || '');
+  writeMergedValue(worksheet, 'H15', quote.imoNumber || '');
+  writeMergedValue(worksheet, 'H16', quote.scheduledArrival ? toDate(quote.scheduledArrival) : '');
+  writeMergedValue(worksheet, 'H17', quote.contactEmail || '');
+  writeMergedValue(worksheet, 'H18', quote.port || '');
+  writeMergedValue(worksheet, 'H19', quote.agentName || '');
 
-  for (const detail of detailRows) {
-    worksheet.getCell(`E${detail.row}`).value = detail.label;
-    setMergedCellValue(worksheet, `F${detail.row}:G${detail.row}`, detail.value || '');
+  const scheduledArrivalMaster = worksheet.getCell('H16').isMerged
+    ? worksheet.getCell('H16').master
+    : worksheet.getCell('H16');
+  if (scheduledArrivalMaster.value instanceof Date) {
+    scheduledArrivalMaster.numFmt = 'dd/mm/yyyy';
+  }
+}
+
+function applyDefaultHeaderImage(workbook, worksheet) {
+  if (!fs.existsSync(defaultHeaderImagePath)) {
+    return;
   }
 
-  worksheet.getCell('H8').value = 'QUOTE DATE';
-  worksheet.getCell('H9').value = 'EXPIRY DATE';
-  worksheet.getCell('H10').value = 'QUOTE NUMBER';
-  setMergedCellValue(worksheet, 'I8:K8', toDate(quote.quoteDate || quote.createdAt));
-  setMergedCellValue(worksheet, 'I9:K9', toDate(quote.expiryDate));
-  setMergedCellValue(worksheet, 'I10:K10', quote.quoteNumber || quote.id);
-  worksheet.getCell('I8').numFmt = 'dd/mm/yyyy';
-  worksheet.getCell('I9').numFmt = 'dd/mm/yyyy';
+  const imageId = workbook.addImage({
+    filename: defaultHeaderImagePath,
+    extension: 'png'
+  });
+
+  worksheet.addImage(imageId, 'A3:B7');
 }
 
 export async function buildExcelBuffer(quote) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(orderTemplatePath);
 
-  const worksheet = workbook.getWorksheet('Quote 1') || workbook.worksheets[0];
-  styleWorkbookShell(worksheet);
-  worksheet.insertRow(13, []);
-  copyRowFormatting(worksheet, 12, 13, 11);
-  populateTemplateHeader(worksheet, quote);
-  styleQuoteHeader(worksheet);
+  const worksheet = workbook.getWorksheet('Pro Forma Invoice') || workbook.getWorksheet('Quote 1') || workbook.worksheets[0];
 
-  const itemStartRow = 18;
-  const templateItemRow = itemStartRow;
+  const itemStartRow = 22;
+  const templateItemEndRow = 36;
+  const maxItems = templateItemEndRow - itemStartRow + 1;
   const items = quote.items.length ? quote.items : [{
     matchedProductKey: '',
     originalItem: '',
@@ -409,72 +548,65 @@ export async function buildExcelBuffer(quote) {
     total: 0,
     status: 'MATCHED'
   }];
-  const extraItemRows = Math.max(0, items.length - 1);
 
-  if (extraItemRows > 0) {
-    worksheet.insertRows(itemStartRow + 1, Array.from({ length: extraItemRows }, () => []));
-    for (let index = 0; index < extraItemRows; index += 1) {
-      const rowNumber = itemStartRow + 1 + index;
-      copyRowFormatting(worksheet, templateItemRow, rowNumber, 11);
+  const extraRows = Math.max(0, items.length - maxItems);
+  if (extraRows > 0) {
+    worksheet.insertRows(templateItemEndRow + 1, Array.from({ length: extraRows }, () => []));
+
+    for (let index = 0; index < extraRows; index += 1) {
+      const rowNumber = templateItemEndRow + 1 + index;
+      copyRowFormatting(worksheet, templateItemEndRow, rowNumber, 11);
+      ensureItemTotalMerge(worksheet, rowNumber);
     }
   }
 
-  styleItemHeaderRow(worksheet, 17);
+  populateTemplateHeader(worksheet, quote);
+  applyDefaultHeaderImage(workbook, worksheet);
 
+  const itemEndRow = itemStartRow + items.length - 1;
   for (let index = 0; index < items.length; index += 1) {
     const rowNumber = itemStartRow + index;
     const item = items[index];
 
-    if (rowNumber !== templateItemRow) {
-      ensureMergedRange(worksheet, `B${rowNumber}:C${rowNumber}`);
-    }
-
-    worksheet.getCell(`A${rowNumber}`).value = item.matchedProductKey || '';
+    worksheet.getCell(`A${rowNumber}`).value = item.matchedProductKey || item.itemCode || '';
     worksheet.getCell(`B${rowNumber}`).value = item.originalItem || '';
-    worksheet.getCell(`D${rowNumber}`).value = buildSpecificationText(item);
-    worksheet.getCell(`E${rowNumber}`).value = item.supplyQuantity ?? '';
-    worksheet.getCell(`F${rowNumber}`).value = item.unit || '';
-    worksheet.getCell(`G${rowNumber}`).value = Number(item.price || 0);
-    worksheet.getCell(`H${rowNumber}`).value = Number(item.total || 0);
-    // Always restyle the first product line to match the rest
+    worksheet.getCell(`C${rowNumber}`).value = buildSpecificationText(item);
+    worksheet.getCell(`D${rowNumber}`).value = Number(item.supplyQuantity ?? 0) || 0;
+    worksheet.getCell(`E${rowNumber}`).value = getUnitType(item.unit);
+    worksheet.getCell(`F${rowNumber}`).value = Number(item.price || 0);
+
+    ensureItemTotalMerge(worksheet, rowNumber);
+    worksheet.getCell(`G${rowNumber}`).value = { formula: `D${rowNumber}*F${rowNumber}` };
     styleItemRow(worksheet, rowNumber, item);
   }
 
-  const itemEndRow = itemStartRow + items.length - 1;
-  const subtotalRow = itemEndRow + 1;
-  const vatRow = subtotalRow + 1;
-  const deliveryRow = subtotalRow + 2;
+  const subtotalRow = itemStartRow + items.length;
+  const calloutRow = subtotalRow + 1;
+  const shippingRow = subtotalRow + 2;
+  const vatRow = subtotalRow + 3;
   const totalRow = subtotalRow + 4;
 
-  clearWorksheetRange(worksheet, subtotalRow, totalRow + 8);
+  writeMergedValue(worksheet, `F${subtotalRow}`, 'Subtotal');
+  writeMergedValue(worksheet, `F${calloutRow}`, 'SAT - SUN Callout');
+  writeMergedValue(worksheet, `F${shippingRow}`, 'Shipping Charge');
+  writeMergedValue(worksheet, `F${vatRow}`, 'VAT');
+  writeMergedValue(worksheet, `F${totalRow}`, 'Grand Total');
 
-  worksheet.getCell(`H${subtotalRow}`).value = 'Subtotal';
-  worksheet.getCell(`I${subtotalRow}`).value = { formula: `SUM(H${itemStartRow}:H${itemEndRow})` };
-  worksheet.getCell(`H${vatRow}`).value = 'VAT';
-  worksheet.getCell(`I${vatRow}`).value = 0;
-  worksheet.getCell(`H${deliveryRow}`).value = 'Delivery & custom expenses';
-  worksheet.getCell(`I${deliveryRow}`).value = 0;
-  worksheet.getCell(`H${totalRow}`).value = 'TOTAL';
-  worksheet.getCell(`I${totalRow}`).value = { formula: `I${subtotalRow}+I${vatRow}+I${deliveryRow}` };
-
-  for (const rowNumber of [subtotalRow, vatRow, deliveryRow, totalRow]) {
-    worksheet.getRow(rowNumber).height = rowNumber === totalRow ? 24 : 20;
-    applyCellStyle(worksheet.getCell(`H${rowNumber}`), {
-      font: { name: 'Aptos', size: rowNumber === totalRow ? 10.5 : 9.5, bold: true, color: { argb: EXCEL_COLORS.navyDeep } },
-      alignment: { horizontal: 'right', vertical: 'middle' },
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: EXCEL_COLORS.navySoft } },
-      border: standardBorder()
-    });
-    applyCellStyle(worksheet.getCell(`I${rowNumber}`), {
-      font: { name: 'Cambria', size: rowNumber === totalRow ? 11.5 : 10, bold: true, color: { argb: EXCEL_COLORS.navyDeep } },
-      alignment: { horizontal: 'right', vertical: 'middle' },
-      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: EXCEL_COLORS.navySoft } },
-      border: standardBorder(),
-      numFmt: '£#,##0.00'
-    });
+  for (let rowNumber = subtotalRow; rowNumber <= totalRow; rowNumber += 1) {
+    clearItemTotalMerge(worksheet, rowNumber);
   }
 
-  writeCompactFooter(worksheet, totalRow);
+  const subtotalValue = Number(quote?.summary?.totalValue || 0);
+  const quoteDate = toDate(quote.quoteDate || quote.createdAt);
+  const day = quoteDate.getDay();
+  const isWeekend = day === 0 || day === 6;
+  const lowOrder = subtotalValue < 3000;
+
+  worksheet.getCell(`H${subtotalRow}`).value = { formula: `SUM(G${itemStartRow}:G${itemEndRow})` };
+  worksheet.getCell(`H${calloutRow}`).value = isWeekend ? 150 : 0;
+  worksheet.getCell(`H${shippingRow}`).value = lowOrder ? 250 : 0;
+  worksheet.getCell(`H${vatRow}`).value = { formula: `0.2*(H${subtotalRow}+H${shippingRow})` };
+  worksheet.getCell(`H${totalRow}`).value = { formula: `H${subtotalRow}+H${shippingRow}+H${vatRow}` };
 
   return workbook.xlsx.writeBuffer();
 }

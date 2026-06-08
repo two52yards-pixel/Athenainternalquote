@@ -6,6 +6,17 @@ function normalizeText(value) {
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+    // Normalize common buyer wording to Athena catalog naming for better produce matches.
+    .replace(/\bdry\s+onions?\b/g, ' white onion ')
+    .replace(/\byellow\s+onions?\b/g, ' white onion ')
+    .replace(/\bdry\s+onion\b/g, ' white onion ')
+    .replace(/\byellow\s+onion\b/g, ' white onion ')
+    .replace(/\bbanan\b/g, ' banana ')
+    .replace(/\bbanana\s+half\s+ripe\b/g, ' banana ')
+    .replace(/\btomato(?:es)?\s+half\s+ripe\b/g, ' tomato ')
+    .replace(/\b(lemon|pear)\s+fresh\b/g, ' $1 ')
+    .replace(/\beggs?\s+grade(?:\s*[a-d])?\b/g, ' egg ')
+    .replace(/\bgrade\s*[a-d]\b/g, ' ')
     .replace(/&/g, ' and ')
     .replace(/\begg\s*plats?\b/g, ' aubergine ')
     .replace(/\begg[\s-]*plants?\b/g, ' aubergine ')
@@ -122,6 +133,9 @@ const QUALIFIER_TOKENS = new Set([
   'prepared',
   'portion',
   'portioned',
+  'ripe',
+  'half',
+  'grade',
   'halved',
   'quartered',
   'leaf',
@@ -197,6 +211,47 @@ const PRODUCE_CONTEXT_SKIP_TOKENS = new Set([
   'foods'
 ]);
 
+const FRUIT_INTENT_TOKENS = new Set([
+  'apple', 'banana', 'orange', 'grape', 'melon', 'watermelon', 'pineapple', 'papaya', 'mango',
+  'pear', 'peach', 'plum', 'kiwi', 'berry', 'strawberry', 'blueberry', 'raspberry', 'blackberry',
+  'mandarin', 'tangerine', 'lemon', 'lime', 'avocado', 'cherry', 'apricot', 'fig', 'date', 'guava'
+]);
+
+const VEGETABLE_INTENT_TOKENS = new Set([
+  'parsley', 'leek', 'spinach', 'eggplant', 'aubergine', 'onion', 'potato', 'carrot', 'cabbage',
+  'lettuce', 'celery', 'pepper', 'chilli', 'chili', 'broccoli', 'cauliflower', 'zucchini', 'courgette',
+  'cucumber', 'tomato', 'radish', 'beetroot', 'beet', 'ginger', 'garlic', 'pumpkin', 'okra', 'pak',
+  'choi', 'choy', 'kale', 'asparagus', 'artichoke', 'turnip', 'parsnip', 'scallion', 'spring', 'shallot'
+]);
+
+const BAKERY_INTENT_TOKENS = new Set([
+  'baguette', 'bread', 'loaf', 'french', 'long', 'roll', 'bun', 'bakery'
+]);
+
+function inferProduceIntentCategory(context) {
+  let fruitHits = 0;
+  let vegetableHits = 0;
+
+  for (const token of context.matchTokens) {
+    if (FRUIT_INTENT_TOKENS.has(token)) {
+      fruitHits += 1;
+    }
+    if (VEGETABLE_INTENT_TOKENS.has(token)) {
+      vegetableHits += 1;
+    }
+  }
+
+  if (fruitHits === 0 && vegetableHits === 0) {
+    return '';
+  }
+
+  return fruitHits >= vegetableHits ? 'fruit' : 'vegetable';
+}
+
+function inferBakeryIntent(context) {
+  return context.matchTokens.some((token) => BAKERY_INTENT_TOKENS.has(token));
+}
+
 function countSharedTokens(leftTokens, rightTokens) {
   const rightTokenSet = new Set(rightTokens);
   let count = 0;
@@ -230,6 +285,8 @@ function buildMatchContext(item, freshProduceTokens) {
   const request = resolveCustomerRequest(item);
   const explicitProcessedRequest = hasAnyToken(rawTokens, PRODUCE_STYLE_TOKENS);
   const produceIntentTokens = matchTokens.filter((token) => freshProduceTokens.has(token));
+  const produceIntentCategory = inferProduceIntentCategory({ matchTokens });
+  const bakeryIntent = inferBakeryIntent({ matchTokens });
 
   return {
     cleanedText,
@@ -238,8 +295,111 @@ function buildMatchContext(item, freshProduceTokens) {
     request,
     explicitProcessedRequest,
     produceIntentTokens,
-    prefersFreshProduce: produceIntentTokens.length > 0 && !explicitProcessedRequest
+    produceIntentCategory,
+    bakeryIntent,
+    prefersFreshProduce: (produceIntentTokens.length > 0 || Boolean(produceIntentCategory)) && !explicitProcessedRequest
   };
+}
+
+function findBakerySemanticMatch(context, products) {
+  if (!context.bakeryIntent) {
+    return null;
+  }
+
+  const requestedBaguetteLike = /\b(baguette|french\s+bread|long\s+bread)\b/i.test(context.cleanedText);
+  if (!requestedBaguetteLike) {
+    return null;
+  }
+
+  let best = null;
+
+  for (const product of products) {
+    const name = String(product.productName || '').toLowerCase();
+    const hasBaguette = /baguette/.test(name);
+    const hasHalfBaked = /half\s*baked/.test(name);
+    const bakeryCategory = product.isBakeryCategory === true;
+    if (!hasBaguette && !bakeryCategory) {
+      continue;
+    }
+
+    let score = 0;
+    if (hasBaguette) {
+      score += 20;
+    }
+    if (hasHalfBaked) {
+      score += 10;
+    }
+    if (bakeryCategory) {
+      score += 4;
+    }
+
+    if (!best || score > best.score) {
+      best = {
+        product,
+        score,
+        confidence: hasBaguette ? 'high' : 'medium',
+        reason: 'semantic bakery match'
+      };
+    }
+  }
+
+  return best;
+}
+
+function findProduceCategoryFallbackMatch(context, products) {
+  if (!context.produceIntentCategory) {
+    return null;
+  }
+
+  const candidates = products.filter((product) => (
+    context.produceIntentCategory === 'fruit'
+      ? (product.isFreshFruitCategory || product.isFreshFoods)
+      : (product.isFreshVegetableCategory || product.isFreshFoods)
+  ));
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  let best = null;
+
+  for (const product of candidates) {
+    const nameHits = countSharedTokens(context.matchTokens, product.nameTokens);
+    const keywordHits = countSharedTokens(context.matchTokens, product.matchTokens);
+    const unitFit = scoreUnitFit(context.request, product);
+    const score = (nameHits * 8) + (keywordHits * 4) + unitFit;
+
+    if (!best || score > best.score) {
+      best = {
+        product,
+        score,
+        confidence: nameHits > 0 ? 'medium' : 'low',
+        reason: `category fallback match (${context.produceIntentCategory})`
+      };
+    }
+  }
+
+  return best;
+}
+
+function findClosestProductTypeFallback(context, products) {
+  if (context.bakeryIntent) {
+    const bakeryCandidates = products.filter((product) => product.isBakeryCategory);
+    if (bakeryCandidates.length) {
+      return {
+        product: bakeryCandidates[0],
+        score: 0,
+        confidence: 'low',
+        reason: 'closest product type fallback (bakery)'
+      };
+    }
+  }
+
+  if (context.produceIntentCategory) {
+    return findProduceCategoryFallbackMatch(context, products);
+  }
+
+  return null;
 }
 
 function scoreProducePreference(context, product) {
@@ -527,9 +687,19 @@ function matchProduct(item, products, fuzzyMatcher, freshProduceTokens) {
   }
 
   // Fallback to default matching
+  const bakerySemanticMatch = findBakerySemanticMatch(context, products);
+  if (bakerySemanticMatch) {
+    return bakerySemanticMatch;
+  }
+
   const keywordMatch = findKeywordMatch(context, products);
   if (keywordMatch) {
     return keywordMatch;
+  }
+
+  const categoryFallbackMatch = findProduceCategoryFallbackMatch(context, products);
+  if (categoryFallbackMatch) {
+    return categoryFallbackMatch;
   }
 
   const fuzzyMatch = fuzzyMatcher ? fuzzyMatcher(item) : null;
@@ -537,7 +707,12 @@ function matchProduct(item, products, fuzzyMatcher, freshProduceTokens) {
     return fuzzyMatch;
   }
 
-  return findAlternativeFreshProduceMatch(context, products);
+  const alternativeProduceMatch = findAlternativeFreshProduceMatch(context, products);
+  if (alternativeProduceMatch) {
+    return alternativeProduceMatch;
+  }
+
+  return findClosestProductTypeFallback(context, products);
 }
 
 function buildMatchedQuoteItem(item, product, matchMeta, priceOverride) {
@@ -557,6 +732,9 @@ function buildMatchedQuoteItem(item, product, matchMeta, priceOverride) {
     matchedProductKey: product.catalogKey || '',
     matchedProduct: product.productName,
     matchedProductDisplay: product.displayName || product.productName,
+    sourceRowNumber: product.sourceRowNumber,
+    unitKgEquivalent: Number.isFinite(Number(product.unitKgEquivalent)) ? Number(product.unitKgEquivalent) : null,
+    forceKgConversion: product.forceKgConversion === true,
     unit: quantityResult.unit,
     unitType: product.unitType,
     supplyQuantity: quantityResult.supplyQuantity,
@@ -616,7 +794,10 @@ export function prepareCatalog(priceList) {
       .filter((token) => !/^\d+$/.test(token)),
     matchTokens: uniqueTokens([product.productName, product.keywords || ''])
       .filter((token) => !/^\d+$/.test(token)),
-    isFreshFoods: normalizeText(product.category || '') === 'fresh foods',
+    isFreshFoods: /(^|\s)fresh\s*foods?(\s|$)/.test(normalizeText(product.category || '')),
+    isFreshFruitCategory: /(^|\s)(fresh\s*fruit|fresh\s*fruits|fruit|fruits)(\s|$)/.test(normalizeText(product.category || '')),
+    isFreshVegetableCategory: /(^|\s)(fresh\s*vegetable|fresh\s*vegetables|vegetable|vegetables)(\s|$)/.test(normalizeText(product.category || '')),
+    isBakeryCategory: /(^|\s)(bakery|bread|breads)(\s|$)/.test(normalizeText(product.category || '')),
     hasProduceStyleQualifier: hasAnyToken(uniqueRawTokens([product.productName, product.keywords || '']), PRODUCE_STYLE_TOKENS),
     unitType: product.unitType || '',
     supplyOptions: Array.isArray(product.supplyOptions) && product.supplyOptions.length
