@@ -583,13 +583,11 @@ export async function buildExcelBuffer(quote) {
   const subtotalRow = itemStartRow + items.length;
   const calloutRow = subtotalRow + 1;
   const shippingRow = subtotalRow + 2;
-  const vatRow = subtotalRow + 3;
-  const totalRow = subtotalRow + 4;
+  const totalRow = subtotalRow + 3;
 
   writeMergedValue(worksheet, `F${subtotalRow}`, 'Subtotal');
   writeMergedValue(worksheet, `F${calloutRow}`, 'SAT - SUN Callout');
   writeMergedValue(worksheet, `F${shippingRow}`, 'Shipping Charge');
-  writeMergedValue(worksheet, `F${vatRow}`, 'VAT');
   writeMergedValue(worksheet, `F${totalRow}`, 'Grand Total');
 
   for (let rowNumber = subtotalRow; rowNumber <= totalRow; rowNumber += 1) {
@@ -605,8 +603,7 @@ export async function buildExcelBuffer(quote) {
   worksheet.getCell(`H${subtotalRow}`).value = { formula: `SUM(G${itemStartRow}:G${itemEndRow})` };
   worksheet.getCell(`H${calloutRow}`).value = isWeekend ? 150 : 0;
   worksheet.getCell(`H${shippingRow}`).value = lowOrder ? 250 : 0;
-  worksheet.getCell(`H${vatRow}`).value = { formula: `0.2*(H${subtotalRow}+H${shippingRow})` };
-  worksheet.getCell(`H${totalRow}`).value = { formula: `H${subtotalRow}+H${shippingRow}+H${vatRow}` };
+  worksheet.getCell(`H${totalRow}`).value = { formula: `H${subtotalRow}+H${shippingRow}` };
 
   return workbook.xlsx.writeBuffer();
 }
@@ -774,16 +771,15 @@ export function buildPdfBuffer(quote) {
 
     const totalsX = startX + 320;
     document.save();
-    document.roundedRect(totalsX, cursorY, 203, 92, 12).fillAndStroke(PDF_COLORS.navySoft, PDF_COLORS.border);
+    document.roundedRect(totalsX, cursorY, 203, 68, 12).fillAndStroke(PDF_COLORS.navySoft, PDF_COLORS.border);
     document.roundedRect(totalsX, cursorY, 203, 24, 12).fill(PDF_COLORS.navySoft);
     document.restore();
     document.font('Helvetica-Bold').fontSize(10).fillColor(PDF_COLORS.navyDeep).text('QUOTE TOTALS', totalsX + 14, cursorY + 7, { width: 175, align: 'left' });
     drawLabelValue(document, 'Subtotal', formatCurrency(quote.summary.totalValue), totalsX + 14, cursorY + 30, 175, { valueSize: 10 });
-    drawLabelValue(document, 'VAT', formatCurrency(0), totalsX + 14, cursorY + 54, 175, { valueSize: 10 });
-    document.font('Helvetica-Bold').fontSize(11).fillColor(PDF_COLORS.navyDeep).text('Total', totalsX + 14, cursorY + 76, { width: 80 });
-    document.font('Times-Bold').fontSize(14).fillColor(PDF_COLORS.navy).text(formatCurrency(quote.summary.totalValue), totalsX + 90, cursorY + 74, { width: 99, align: 'right' });
+    document.font('Helvetica-Bold').fontSize(11).fillColor(PDF_COLORS.navyDeep).text('Total', totalsX + 14, cursorY + 52, { width: 80 });
+    document.font('Times-Bold').fontSize(14).fillColor(PDF_COLORS.navy).text(formatCurrency(quote.summary.totalValue), totalsX + 90, cursorY + 50, { width: 99, align: 'right' });
 
-    cursorY += 122;
+    cursorY += 98;
     ensurePageSpace(70);
 
     document.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_COLORS.muted).text('NOTES', startX, cursorY, { width: 80 });

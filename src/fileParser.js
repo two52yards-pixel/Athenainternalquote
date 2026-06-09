@@ -3,16 +3,11 @@ import path from 'node:path';
 import xlsx from 'xlsx';
 import { convertToBaseUnit, detectUnitType, parseSupplyOptions } from './calculator.js';
 
-const HEADER_ALIASES = {
-  description: ['description', 'item', 'item name', 'product', 'product name', 'product description', 'name', 'goods', 'article'],
-  quantity: ['quantity', 'qty', 'requested qty', 'order qty', 'amount'],
-  unit: ['unit', 'uom', 'measure', 'pack', 'packing unit']
+const REQUISITION_HEADER_ALIASES = {
+  description: ['description', 'item', 'item name', 'product', 'goods', 'material'],
+  quantity: ['qty', 'quantity'],
+  unit: ['unit', 'uom', 'u m', 'units']
 };
-
-const DESCRIPTION_HEADER_PREFERENCE = [
-  ['description', 'product description', 'product name', 'item name', 'name', 'goods', 'article', 'product'],
-  ['item']
-];
 
 const ATHENA_PRICE_LIST_HEADERS = {
   product: ['standard product name', 'product name', 'description2', 'description'],
@@ -439,70 +434,25 @@ function getHeaderIndex(headerRow, aliases) {
   return headerRow.findIndex((cell) => aliases.includes(normalizeHeader(cell)));
 }
 
-function getDescriptionHeaderIndex(headerRow) {
-  for (const aliasGroup of DESCRIPTION_HEADER_PREFERENCE) {
-    const index = getHeaderIndex(headerRow, aliasGroup);
-    if (index >= 0) {
-      return index;
-    }
-  }
+function findRequisitionHeaderRow(rows) {
+  return rows.findIndex((row) => {
+    const normalized = row.map(normalizeHeader);
 
-  return -1;
+    const hasDescription = normalized.some((cell) => REQUISITION_HEADER_ALIASES.description.includes(cell));
+    const hasQuantity = normalized.some((cell) => REQUISITION_HEADER_ALIASES.quantity.includes(cell));
+    const hasUnit = normalized.some((cell) => REQUISITION_HEADER_ALIASES.unit.includes(cell));
+
+    return hasDescription && hasQuantity && hasUnit;
+  });
 }
 
-function looksLikeItemCode(value) {
-  const normalized = String(value ?? '').trim();
-
+function isSubtotalOrTotalDescription(description) {
+  const normalized = normalizeHeader(description);
   if (!normalized) {
     return false;
   }
 
-  return /^[a-z]{2,}[\-\s]?[0-9]{2,}$/i.test(normalized)
-    || /^[a-z0-9]{2,}[\-_/]?[a-z0-9]{2,}$/i.test(normalized) && !/\s/.test(normalized);
-}
-
-function inferDescription(row) {
-  const textCells = row
-    .map((cell) => String(cell ?? '').trim())
-    .filter((cell) => cell && Number.isNaN(Number(cell)))
-    .filter((cell) => !looksLikeItemCode(cell));
-
-  if (!textCells.length) {
-    return '';
-  }
-
-  return textCells.sort((left, right) => {
-    const leftWords = left.split(/\s+/).length;
-    const rightWords = right.split(/\s+/).length;
-
-    if (rightWords !== leftWords) {
-      return rightWords - leftWords;
-    }
-
-    return right.length - left.length;
-  })[0];
-}
-
-function inferQuantity(row) {
-  for (const cell of row) {
-    const parsed = parseNumber(cell);
-    if (parsed !== null && parsed >= 0) {
-      return parsed;
-    }
-  }
-
-  return null;
-}
-
-function inferHeaderRow(rows) {
-  return rows.findIndex((row, index) => {
-    if (index > 10) {
-      return false;
-    }
-
-    const normalized = row.map(normalizeHeader);
-    return normalized.some((cell) => HEADER_ALIASES.description.includes(cell));
-  });
+  return /(^|\s)(sub\s*total|subtotal|grand\s*total|total)(\s|$)/.test(normalized);
 }
 
 function readWorkbook(filePath, content) {
@@ -703,12 +653,16 @@ export async function parseRequisitionFile(filePath, originalFileName = '') {
     throw new Error('The uploaded requisition file is empty.');
   }
 
-  const headerRowIndex = inferHeaderRow(rows);
-  const headerRow = headerRowIndex >= 0 ? rows[headerRowIndex] : [];
-  const descriptionIndex = getDescriptionHeaderIndex(headerRow);
-  const quantityIndex = getHeaderIndex(headerRow, HEADER_ALIASES.quantity);
-  const unitIndex = getHeaderIndex(headerRow, HEADER_ALIASES.unit);
-  const dataRows = rows.slice(headerRowIndex >= 0 ? headerRowIndex + 1 : 0);
+  const headerRowIndex = findRequisitionHeaderRow(rows);
+  if (headerRowIndex < 0) {
+    throw new Error('No item header row found in file. Expected DESCRIPTION/ITEM, QTY/QUANTITY, and UNIT/UOM columns.');
+  }
+
+  const headerRow = rows[headerRowIndex];
+  const descriptionIndex = getHeaderIndex(headerRow, REQUISITION_HEADER_ALIASES.description);
+  const quantityIndex = getHeaderIndex(headerRow, REQUISITION_HEADER_ALIASES.quantity);
+  const unitIndex = getHeaderIndex(headerRow, REQUISITION_HEADER_ALIASES.unit);
+  const dataRows = rows.slice(headerRowIndex + 1);
 
   const items = [];
   for (const row of dataRows) {
@@ -716,16 +670,18 @@ export async function parseRequisitionFile(filePath, originalFileName = '') {
       continue;
     }
 
-    const originalItem = descriptionIndex >= 0
-      ? String(row[descriptionIndex] ?? '').trim()
-      : inferDescription(row);
+    const originalItem = String(row[descriptionIndex] ?? '').trim();
 
-    if (!originalItem) {
+    if (!originalItem || isSubtotalOrTotalDescription(originalItem)) {
       continue;
     }
 
-    const quantity = quantityIndex >= 0 ? parseNumber(row[quantityIndex]) : inferQuantity(row);
-    const requestedUnit = unitIndex >= 0 ? String(row[unitIndex] ?? '').trim() : '';
+    const quantity = parseNumber(row[quantityIndex]);
+    if (quantity === null || quantity <= 0) {
+      continue;
+    }
+
+    const requestedUnit = String(row[unitIndex] ?? '').trim();
 
     items.push({
       lineNumber: items.length + 1,
