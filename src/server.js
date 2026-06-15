@@ -31,6 +31,9 @@ const uploadsDirectory = path.join(projectRoot, 'uploads');
 // INIT APP (MUST BE FIRST)
 // =====================
 const app = express();
+// Trust the first proxy (required on Render, Railway, Heroku, etc.)
+// so express-rate-limit can read the real client IP from X-Forwarded-For
+app.set('trust proxy', 1);
 const upload = multer({ dest: uploadsDirectory });
 
 // =====================
