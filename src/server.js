@@ -17,7 +17,7 @@ import { buildExcelBuffer, buildPdfBuffer } from './exporters.js';
 import { loadPriceList, parseRequisitionFile } from './parser.js';
 import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
-import { listQuotes, loadQuote, saveQuote, listAllQuotes } from './quoteStore.js';
+import { listQuotes, loadQuote, saveQuote, listAllQuotes, restoreAllQuotesFromR2 } from './quoteStore.js';
 
 // =====================
 // PATH SETUP
@@ -407,6 +407,8 @@ app.listen(port, async () => {
   console.log(`Price list: ${priceListPath}`);
   // Restore clients.json from R2 if missing (fresh Render deploy)
   await initClientStore().catch(err => console.error('[auth] Client store init error:', err.message));
+  // Restore all quote files from R2 if missing (fresh Render deploy)
+  await restoreAllQuotesFromR2().catch(err => console.error('[quotes] R2 restore error:', err.message));
   // Seed admin account on first boot — safe no-op on subsequent starts
   await seedAdminIfNeeded().catch(err => console.error('[auth] Admin seed error:', err.message));
 });

@@ -1,11 +1,99 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import 'dotenv/config';
 
 const quotesRootDirectory = path.resolve(process.cwd(), 'logs', 'quotes');
 const quoteSequenceStatePath = path.join(quotesRootDirectory, 'quote-sequence.json');
 const quoteSequenceLockPath = path.join(quotesRootDirectory, '.quote-sequence.lock');
 const DEFAULT_SEQUENCE_FLOOR = Number(process.env.QUOTE_SEQUENCE_FLOOR || 2217);
+
+// =====================
+// R2 SYNC
+// =====================
+const R2_QUOTES_PREFIX = 'quotes';
+
+function getR2Client() {
+  if (!process.env.R2_ENDPOINT || !process.env.R2_BUCKET) return null;
+  return new S3Client({
+    region: 'auto',
+    endpoint: process.env.R2_ENDPOINT,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+  });
+}
+
+async function backupQuoteToR2(scopeKey, quoteId, content) {
+  try {
+    const s3 = getR2Client();
+    if (!s3) return;
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: `${R2_QUOTES_PREFIX}/${scopeKey}/${quoteId}.json`,
+      Body: content,
+      ContentType: 'application/json',
+    }));
+  } catch (err) {
+    console.warn('[quoteStore] R2 backup failed:', err.message);
+  }
+}
+
+async function fetchQuoteFromR2(scopeKey, quoteId) {
+  try {
+    const s3 = getR2Client();
+    if (!s3) return null;
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: `${R2_QUOTES_PREFIX}/${scopeKey}/${quoteId}.json`,
+    }));
+    const chunks = [];
+    for await (const chunk of result.Body) chunks.push(chunk);
+    return Buffer.concat(chunks).toString('utf8');
+  } catch (err) {
+    if (err.name !== 'NoSuchKey' && err.$metadata?.httpStatusCode !== 404) {
+      console.warn('[quoteStore] R2 fetch failed:', err.message);
+    }
+    return null;
+  }
+}
+
+// Called at server startup — restores any quote files that are missing locally.
+export async function restoreAllQuotesFromR2() {
+  try {
+    const s3 = getR2Client();
+    if (!s3) return;
+    let continuationToken;
+    let restored = 0;
+    do {
+      const result = await s3.send(new ListObjectsV2Command({
+        Bucket: process.env.R2_BUCKET,
+        Prefix: R2_QUOTES_PREFIX + '/',
+        ContinuationToken: continuationToken,
+      }));
+      for (const obj of (result.Contents || [])) {
+        const parts = obj.Key.split('/');
+        // Expect exactly: quotes / scopeKey / quoteId.json
+        if (parts.length !== 3 || !parts[2].endsWith('.json')) continue;
+        const [, scopeKey, fileName] = parts;
+        const localPath = path.join(quotesRootDirectory, scopeKey, fileName);
+        try { await fs.access(localPath); continue; } catch { /* missing — restore */ }
+        const content = await fetchQuoteFromR2(scopeKey, fileName.replace('.json', ''));
+        if (content) {
+          await fs.mkdir(path.join(quotesRootDirectory, scopeKey), { recursive: true });
+          await fs.writeFile(localPath, content, 'utf8');
+          restored++;
+        }
+      }
+      continuationToken = result.NextContinuationToken;
+    } while (continuationToken);
+    if (restored > 0) console.log(`[quoteStore] Restored ${restored} quote(s) from R2.`);
+  } catch (err) {
+    console.warn('[quoteStore] R2 restore-all failed:', err.message);
+  }
+}
 
 function sanitizeScopeKey(value) {
   const normalized = String(value || '').trim().toLowerCase();
@@ -202,7 +290,10 @@ export async function saveQuote(quote) {
 
   const record = await enrichQuoteMetadata(baseRecord);
 
-  await fs.writeFile(getQuotePath(scopeKey, quoteId), JSON.stringify(record, null, 2), 'utf8');
+  const content = JSON.stringify(record, null, 2);
+  await fs.writeFile(getQuotePath(scopeKey, quoteId), content, 'utf8');
+  // Persist to R2 so quotes survive Render re-deploys
+  await backupQuoteToR2(scopeKey, quoteId, content);
   return record;
 }
 
@@ -212,9 +303,15 @@ export async function loadQuote(quoteId, scopeKey) {
     return JSON.parse(content);
   } catch (error) {
     if (error && typeof error === 'object' && error.code === 'ENOENT') {
+      // Local file missing — try restoring from R2 (e.g. after a Render re-deploy)
+      const r2Content = await fetchQuoteFromR2(sanitizeScopeKey(scopeKey), quoteId);
+      if (r2Content) {
+        await ensureQuotesDirectory(scopeKey);
+        await fs.writeFile(getQuotePath(scopeKey, quoteId), r2Content, 'utf8');
+        return JSON.parse(r2Content);
+      }
       throw createNotFoundError('Quote not found. It may have been removed.');
     }
-
     throw error;
   }
 }
