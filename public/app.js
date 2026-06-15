@@ -16,6 +16,7 @@ const downloadExcelButton = document.querySelector('#download-excel-button');
 const downloadPdfButton = document.querySelector('#download-pdf-button');
 const processButton = document.querySelector('#process-button');
 const historyList = document.querySelector('#history-list');
+const summaryUnavailable = document.querySelector('#summary-unavailable');
 const LAST_OPEN_QUOTE_STORAGE_KEY = 'athena:last-open-quote-id';
 const QUOTE_SCOPE_STORAGE_KEY = 'athena:quote-scope-id';
 
@@ -322,8 +323,17 @@ function selectSupplyOption(product, request) {
         score -= 15;
       }
 
-      if (isEggProduct && customerUnitType === 'pcs' && effectiveCustomerQuantity >= 1000) {
-        score += unitQuantityForFulfillment / 10;
+      if (isEggProduct && customerUnitType === 'pcs' && Number.isFinite(effectiveCustomerQuantity) && effectiveCustomerQuantity > 0 && unitQuantityForFulfillment > 0) {
+        const eggRemainder = effectiveCustomerQuantity % unitQuantityForFulfillment;
+        if (eggRemainder === 0) {
+          // Exact fit: strongly favour this option; among exact options prefer larger packs (fewer boxes needed).
+          score += 40;
+          score += unitQuantityForFulfillment * 0.15;
+        } else {
+          // Not exact: penalise proportionally to how many extra pieces would be supplied.
+          const eggOvershoot = unitQuantityForFulfillment - eggRemainder;
+          score -= eggOvershoot * 0.5;
+        }
       }
     }
 
@@ -572,6 +582,9 @@ function selectMatchedProductOption(optionButton) {
 function updateSummary(quote) {
   document.querySelector('#summary-lines').textContent = quote.summary.lineCount;
   document.querySelector('#summary-review').textContent = quote.summary.reviewRequired;
+  if (summaryUnavailable) {
+    summaryUnavailable.textContent = Number(quote.summary.unavailable || 0);
+  }
   document.querySelector('#summary-total').textContent = formatCurrency(quote.summary.totalValue);
   document.querySelector('#summary-time').textContent = formatProcessingTime(quote.processingMs);
 }
@@ -582,37 +595,45 @@ function displayStatus(status) {
   }
 
   if (status === 'UNAVAILABLE') {
-    return 'Unavailable';
+    return 'No match';
   }
 
-  return status;
+  if (status === 'REVIEW REQUIRED' || status === 'MANUAL CHECK') {
+    return 'Review';
+  }
+
+  return 'Review';
+}
+
+function isItemUnavailable(item) {
+  return item?.available === false || item?.isUnavailable === true || item?.status === 'UNAVAILABLE';
 }
 
 function getUnavailableToggleConfig(item) {
-  const isUnavailable = Boolean(item.isUnavailable || item.status === 'UNAVAILABLE');
+  const isUnavailable = isItemUnavailable(item);
 
   return {
     isUnavailable,
-    symbol: isUnavailable ? '✓' : 'X',
-    title: isUnavailable ? 'Restore item' : 'Mark item unavailable',
-    className: isUnavailable ? 'restore-button' : 'unavailable-button'
+    symbol: isUnavailable ? '✓' : '✕',
+    title: isUnavailable ? 'Mark as available' : 'Mark as unavailable',
+    className: isUnavailable ? 'is-unavailable' : 'is-available'
   };
 }
 
 function getStatusClass(item) {
-  if (item.status === 'MATCHED') {
-    return 'matched';
+  if (isItemUnavailable(item)) {
+    return 'unavailable';
   }
 
-  if (item.status === 'UNAVAILABLE' || item.isUnavailable) {
-    return 'unavailable';
+  if (item.status === 'MATCHED') {
+    return 'matched';
   }
 
   return 'review';
 }
 
 function getSupplierQuantity(item) {
-  if (item.isUnavailable) {
+  if (isItemUnavailable(item)) {
     return 0;
   }
 
@@ -624,7 +645,7 @@ function getSupplierUnit(item) {
 }
 
 function getTotalSuppliedText(item) {
-  if (item.isUnavailable) {
+  if (isItemUnavailable(item)) {
     return '';
   }
 
@@ -665,12 +686,20 @@ function summarizeCurrentQuote() {
     return;
   }
 
+  const unavailableCount = state.currentQuote.items.filter((line) => isItemUnavailable(line)).length;
   state.currentQuote.summary.lineCount = state.currentQuote.items.length;
-  state.currentQuote.summary.reviewRequired = state.currentQuote.items.filter((line) => line.status !== 'MATCHED' && line.status !== 'UNAVAILABLE').length;
-  state.currentQuote.summary.totalValue = Number(state.currentQuote.items.reduce((sum, line) => sum + Number(line.total || 0), 0).toFixed(2));
+  state.currentQuote.summary.unavailable = unavailableCount;
+  state.currentQuote.summary.reviewRequired = state.currentQuote.items.filter((line) => !isItemUnavailable(line) && line.status !== 'MATCHED').length;
+  state.currentQuote.summary.totalValue = Number(state.currentQuote.items.reduce((sum, line) => {
+    if (isItemUnavailable(line)) {
+      return sum;
+    }
+    return sum + Number(line.total || 0);
+  }, 0).toFixed(2));
 }
 
 function markRowUnavailable(item) {
+  item.available = false;
   item.isUnavailable = true;
   item.status = 'UNAVAILABLE';
   item.supplyQuantity = 0;
@@ -716,6 +745,25 @@ function closeCurrentQuoteView() {
 
 function renderQuote(quote) {
   state.currentQuote = quote;
+  if (!state.currentQuote.summary) {
+    state.currentQuote.summary = {};
+  }
+
+  state.currentQuote.items.forEach((item) => {
+    if (typeof item.available !== 'boolean') {
+      item.available = !(item.isUnavailable || item.status === 'UNAVAILABLE');
+    }
+
+    if (item.available === false) {
+      markRowUnavailable(item);
+    } else {
+      item.isUnavailable = false;
+      if (item.status === 'UNAVAILABLE') {
+        item.status = 'REVIEW REQUIRED';
+      }
+    }
+  });
+
   rememberCurrentQuote(quote);
   summaryPanel.classList.remove('hidden');
   resultsPanel.classList.remove('hidden');
@@ -730,22 +778,23 @@ function renderQuote(quote) {
 
     return `
       <tr data-index="${index}" class="${isUnavailable ? 'row-unavailable' : ''}">
-        <td>${item.lineNumber}</td>
-        <td>${escapeHtml(item.originalItem)}</td>
-        <td>
+        <td class="line-cell">${item.lineNumber}</td>
+        <td class="item-cell">${escapeHtml(item.originalItem)}</td>
+        <td class="product-cell">
           ${renderMatchedProductDropdown(item.matchedProductKey || item.matchedProduct, isUnavailable)}
         </td>
-        <td><span class="status-pill ${statusClass}">${displayStatus(item.status)}</span></td>
-        <td><input class="row-input quantity" type="number" min="0" step="1" value="${item.quantity ?? ''}" ${disabledAttribute}></td>
-        <td class="requested-unit-display">${escapeHtml(item.requestedUnit || item.customerUnitType || '')}</td>
-        <td>
+        <td class="status-cell"><span class="status-pill ${statusClass}">${displayStatus(item.status)}</span></td>
+        <td class="qty-cell"><input class="row-input quantity" type="number" min="0" step="1" value="${item.quantity ?? ''}" ${disabledAttribute}></td>
+        <td class="requested-unit-cell requested-unit-display">${escapeHtml(item.requestedUnit || item.customerUnitType || '')}</td>
+        <td class="supplier-qty-cell">
           <input class="row-input supplier-quantity-input" type="number" min="0" step="1" value="${getSupplierQuantity(item)}" ${disabledAttribute}>
         </td>
-        <td class="supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
-        <td class="total-supplied">${escapeHtml(getTotalSuppliedText(item))}</td>
-        <td class="price-display">${Number(item.price || 0).toFixed(2)}</td>
-        <td class="line-total">${formatCurrency(item.total)}</td>
-        <td><button type="button" class="row-action-button unavailable-toggle ${toggleConfig.className}" aria-label="${toggleConfig.title}" title="${toggleConfig.title}">${toggleConfig.symbol}</button></td>
+        <td class="supplier-unit-cell supplier-unit">${escapeHtml(getSupplierUnit(item))}</td>
+        <td class="total-supplied-cell total-supplied">${escapeHtml(getTotalSuppliedText(item))}</td>
+        <td class="price-cell price-display">${Number(item.price || 0).toFixed(2)}</td>
+        <td class="total-cell line-total">${formatCurrency(item.total)}</td>
+        <td class="action-cell"><button type="button" class="row-action-button" ${disabledAttribute}>-</button></td>
+        <td class="availability-cell"><button type="button" class="unavailable-toggle ${toggleConfig.className}" aria-label="${toggleConfig.title}" title="${toggleConfig.title}">${toggleConfig.symbol}</button></td>
       </tr>
     `;
   }).join('');
@@ -757,7 +806,7 @@ function refreshRow(row, changedField = '') {
   const index = Number(row.dataset.index);
   const item = state.currentQuote.items[index];
 
-  if (item.isUnavailable) {
+  if (isItemUnavailable(item)) {
     markRowUnavailable(item);
     summarizeCurrentQuote();
     updateSummary(state.currentQuote);
@@ -812,6 +861,7 @@ function refreshRow(row, changedField = '') {
   item.deliveredQuantity = null;
   item.deliveredUnitType = '';
   item.supplierQuantityOverride = null;
+  item.available = true;
   item.isUnavailable = false;
 
   if (!matchedProduct) {
@@ -914,6 +964,34 @@ async function loadHistory() {
 }
 
 // =====================
+// FILE INPUT — Show selected filename
+// =====================
+const fileInput = document.querySelector('#requisition-file-input');
+const uploadZoneIcon = document.querySelector('#upload-zone-icon');
+const uploadZoneText = document.querySelector('#upload-zone-text');
+const uploadZoneHint = document.querySelector('#upload-zone-hint');
+const uploadZoneLabel = document.querySelector('#upload-zone-label');
+
+if (fileInput) {
+  fileInput.addEventListener('change', () => {
+    const file = fileInput.files && fileInput.files[0];
+    if (file) {
+      uploadZoneIcon.className = 'ti ti-circle-check';
+      uploadZoneIcon.style.color = 'var(--colour-success, #22c55e)';
+      uploadZoneText.textContent = file.name;
+      uploadZoneHint.textContent = `${(file.size / 1024).toFixed(1)} KB — ready to process`;
+      uploadZoneLabel.classList.add('upload-zone--selected');
+    } else {
+      uploadZoneIcon.className = 'ti ti-upload';
+      uploadZoneIcon.style.color = '';
+      uploadZoneText.textContent = 'Drop file here or click to upload';
+      uploadZoneHint.textContent = 'XLS · XLSX · CSV · PDF - max 10 MB';
+      uploadZoneLabel.classList.remove('upload-zone--selected');
+    }
+  });
+}
+
+// =====================
 // FORM SUBMIT — Process requisition
 // =====================
 form.addEventListener('submit', async (event) => {
@@ -1008,14 +1086,15 @@ resultsTableBody.addEventListener('click', (event) => {
       return;
     }
 
-    if (item.isUnavailable) {
+    if (isItemUnavailable(item)) {
+      item.available = true;
       item.isUnavailable = false;
       renderQuote(state.currentQuote);
       const restoredRow = resultsTableBody.querySelector(`tr[data-index="${index}"]`);
       if (restoredRow) {
         refreshRow(restoredRow, 'restore-available');
       }
-      setStatus(`Restored line ${item.lineNumber} to the active quote.`);
+      setStatus(`Marked line ${item.lineNumber} as available.`);
     } else {
       markRowUnavailable(item);
       renderQuote(state.currentQuote);
@@ -1253,6 +1332,7 @@ historyList.addEventListener('click', async (event) => {
     const quote = await requestJson(`/api/quotes/${button.dataset.quoteId}`);
     renderQuote(quote);
     setStatus(`Loaded quote ${quote.id}.`);
+    document.querySelector('#summary-panel').scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (error) {
     setStatus(error.message, true);
   }

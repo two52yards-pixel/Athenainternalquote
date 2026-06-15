@@ -260,3 +260,64 @@ export async function listQuotes(scopeKey) {
 
   return quotes.sort((left, right) => new Date(right.updatedAt) - new Date(left.updatedAt));
 }
+
+// =====================
+// LIST ALL QUOTES — admin only
+// Scans every scope directory and returns all quotes tagged with their clientId.
+// Quotes in directories that don't match any known client ID are "orphaned".
+// =====================
+export async function listAllQuotes() {
+  await fs.mkdir(quotesRootDirectory, { recursive: true });
+
+  let entries;
+  try {
+    entries = await fs.readdir(quotesRootDirectory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const all = [];
+
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const clientId = entry.name; // folder name = client UUID (or legacy browser scope)
+    const dir = path.join(quotesRootDirectory, clientId);
+    let files;
+    try {
+      files = await fs.readdir(dir);
+    } catch {
+      continue;
+    }
+
+    for (const fileName of files.filter(f => f.endsWith('.json'))) {
+      let quote = null;
+      try {
+        quote = JSON.parse(await fs.readFile(path.join(dir, fileName), 'utf8'));
+      } catch {
+        continue;
+      }
+      if (!quote || !quote.id) continue;
+
+      all.push({
+        clientId,
+        id: quote.id,
+        quoteNumber: quote.quoteNumber,
+        quoteDate: quote.quoteDate || quote.createdAt,
+        expiryDate: quote.expiryDate || null,
+        clientName: quote.clientName,
+        vesselName: quote.vesselName,
+        port: quote.port,
+        imoNumber: quote.imoNumber || '',
+        scheduledArrival: quote.scheduledArrival || '',
+        contactEmail: quote.contactEmail || '',
+        agentName: quote.agentName || '',
+        createdAt: quote.createdAt,
+        updatedAt: quote.updatedAt,
+        quoteStatus: quote.quoteStatus || 'OPEN',
+        summary: quote.summary
+      });
+    }
+  }
+
+  return all.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
+}

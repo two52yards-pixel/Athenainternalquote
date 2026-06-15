@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create Account — Athena Marine Quote Desk</title>
+  <link rel="icon" href="https://athenamarine.co.uk/logo/favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="main-b2b.css">
+  <link rel="stylesheet" href="auth.css">
+</head>
+<body class="auth-body">
+
+  <header class="top-nav" aria-label="Primary">
+    <div class="top-nav-inner">
+      <a href="/login.html" class="brand" aria-label="Athena Marine Quote Desk">
+        <img src="50.png" alt="Athena Marine logo" class="brand-logo">
+        <span class="brand-text">Athena Marine — Quote Desk</span>
+      </a>
+    </div>
+  </header>
+
+  <main class="auth-main">
+    <div class="auth-card">
+
+      <h1>Create account</h1>
+      <p class="auth-subtitle">Request access to the Athena Marine Quote Desk</p>
+
+      <div id="alert" class="auth-alert alert-error" role="alert" aria-live="polite">
+        <i class="ti ti-alert-circle" aria-hidden="true"></i>
+        <span id="alert-text"></span>
+      </div>
+
+      <div id="success-banner" class="auth-alert alert-success" role="status" aria-live="polite">
+        <i class="ti ti-circle-check" aria-hidden="true"></i>
+        <span>Account created! <a href="/login.html">Sign in now →</a></span>
+      </div>
+
+      <form id="signup-form" autocomplete="off" novalidate>
+        <div class="auth-field">
+          <label for="fullName">Full name</label>
+          <input id="fullName" type="text" name="fullName" autocomplete="off"
+                 placeholder="Jane Smith" required>
+          <span class="field-error" id="fullName-error"></span>
+        </div>
+
+        <div class="auth-field">
+          <label for="email">Email address</label>
+          <input id="email" type="email" name="email" autocomplete="off"
+                 placeholder="jane@example.com" required>
+          <span class="field-error" id="email-error"></span>
+        </div>
+
+        <div class="auth-field">
+          <label for="password">
+            Password
+            <span style="color:var(--muted);font-weight:400">(min. 8 characters)</span>
+          </label>
+          <input id="password" type="password" name="password" autocomplete="new-password"
+                 placeholder="••••••••" required>
+          <span class="field-error" id="password-error"></span>
+        </div>
+
+        <div class="auth-field">
+          <label for="companyName">
+            Company name
+            <span style="color:var(--muted);font-weight:400">(optional)</span>
+          </label>
+          <input id="companyName" type="text" name="companyName" autocomplete="off"
+                 placeholder="Acme Shipping Ltd">
+        </div>
+
+        <button type="submit" class="auth-btn" id="submit-btn">
+          <i class="ti ti-user-plus" aria-hidden="true"></i>
+          Create account
+        </button>
+      </form>
+
+      <hr class="auth-divider">
+
+      <div class="auth-links">
+        Already have an account? <a href="/login.html">Sign in</a>
+      </div>
+
+    </div>
+  </main>
+
+  <script>
+    const form          = document.getElementById('signup-form');
+    const alertEl       = document.getElementById('alert');
+    const alertTxt      = document.getElementById('alert-text');
+    const successBanner = document.getElementById('success-banner');
+    const btn           = document.getElementById('submit-btn');
+
+    function showError(msg) {
+      alertTxt.textContent = msg;
+      alertEl.classList.add('visible');
+      successBanner.classList.remove('visible');
+    }
+
+    function clearError() {
+      alertEl.classList.remove('visible');
+    }
+
+    function setLoading(loading) {
+      btn.disabled = loading;
+      btn.innerHTML = loading
+        ? '<i class="ti ti-loader-2 spin" aria-hidden="true"></i> Creating account…'
+        : '<i class="ti ti-user-plus" aria-hidden="true"></i> Create account';
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearError();
+
+      const fullName    = form.fullName.value.trim();
+      const email       = form.email.value.trim();
+      const password    = form.password.value;
+      const companyName = form.companyName.value.trim();
+
+      if (!fullName)              { showError('Please enter your full name.'); return; }
+      if (!email)                 { showError('Please enter your email address.'); return; }
+      if (password.length < 8)   { showError('Password must be at least 8 characters.'); return; }
+
+      setLoading(true);
+
+      try {
+        const res  = await fetch('/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ fullName, email, password, companyName })
+        });
+        const data = await res.json();
+
+        if (!res.ok) {
+          showError(data.error || 'Sign up failed. Please try again.');
+          setLoading(false);
+          return;
+        }
+
+        // Hide form, show success
+        form.style.display = 'none';
+        document.querySelector('.auth-divider').style.display = 'none';
+        document.querySelector('.auth-links').style.display   = 'none';
+        successBanner.classList.add('visible');
+      } catch {
+        showError('Unable to connect. Please try again.');
+        setLoading(false);
+      }
+    });
+  </script>
+
+</body>
+</html>

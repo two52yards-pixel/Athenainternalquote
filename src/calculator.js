@@ -454,8 +454,17 @@ export function selectSupplyOption(request, product) {
         score -= 15;
       }
 
-      if (isEggProduct && effectiveRequest.customerUnitType === 'pcs' && effectiveCustomerQuantity >= 1000) {
-        score += unitQuantityForFulfillment / 10;
+      if (isEggProduct && effectiveRequest.customerUnitType === 'pcs' && Number.isFinite(effectiveCustomerQuantity) && effectiveCustomerQuantity > 0 && unitQuantityForFulfillment > 0) {
+        const eggRemainder = effectiveCustomerQuantity % unitQuantityForFulfillment;
+        if (eggRemainder === 0) {
+          // Exact fit: strongly favour this option; among exact options prefer larger packs (fewer boxes needed).
+          score += 40;
+          score += unitQuantityForFulfillment * 0.15;
+        } else {
+          // Not exact: penalise proportionally to how many extra pieces would be supplied.
+          const eggOvershoot = unitQuantityForFulfillment - eggRemainder;
+          score -= eggOvershoot * 0.5;
+        }
       }
     }
 

@@ -4,96 +4,146 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Athena Marine Quote Desk</title>
+  <link rel="icon" href="https://athenamarine.co.uk/logo/favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
   <link rel="stylesheet" href="main-b2b.css">
 </head>
 <body>
-  <main class="layout">
-    <section class="panel upload-panel">
-      <div>
-        <p class="eyebrow">Internal Use</p>
-        <h1>Athena Marine Quote Desk</h1>
-        <p class="lede">Upload a vessel requisition, review the matched products, and export a draft quote for manual client follow-up.</p>
-      </div>
+  <header class="top-nav" aria-label="Primary">
+    <div class="top-nav-inner">
+      <a href="#" class="brand" aria-label="Athena Marine Quote Desk">
+        <img src="50.png" alt="Athena Marine logo" class="brand-logo">
+        <span class="brand-text">Athena Marine - Quote Desk</span>
+      </a>
+      <nav class="top-links" aria-label="Quick links">
+        <a class="active" href="#quote-form">New requisition</a>
+      
+        <a href="https://athenamarine.co.uk/contact%20us.html">Help</a>
+        <button id="logout-btn" type="button"
+                style="background:transparent;border:1px solid rgba(255,255,255,0.35);color:#fff;border-radius:5px;padding:0 12px;height:30px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;font-family:inherit;"
+                aria-label="Sign out">
+          <i class="ti ti-logout" aria-hidden="true"></i> Sign out
+        </button>
+      </nav>
+    </div>
+  </header>
 
-      <form id="quote-form" class="form-grid">
-        <label>
-          <span>Client Name</span>
-          <input type="text" name="clientName" required>
-        </label>
-        <label>
-          <span>Vessel Name</span>
-          <input type="text" name="vesselName" required>
-        </label>
-        <label>
-          <span>IMO Number</span>
-          <input type="text" name="imoNumber" required>
-        </label>
-        <label>
-          <span>Scheduled Arrival</span>
-          <input type="date" name="scheduledArrival" required>
-        </label>
-        <label>
-          <span>Contact Email</span>
-          <input type="email" name="contactEmail" required>
-        </label>
-        <label>
-          <span>Agent Name</span>
-          <input type="text" name="agentName" required>
-        </label>
-        <label>
-          <span>Port</span>
-          <input type="text" name="port">
-        </label>
-        <label class="file-field">
-          <span>Requisition File</span>
-          <input type="file" name="requisitionFile" accept=".csv,.xlsx,.xls" required>
-        </label>
-        <div class="form-actions">
-          <button type="submit" id="process-button">Process Requisition</button>
-        </div>
-        <a class="sample-link" href="/examples/sample-requisition.csv" download>Download Sample Requisition</a>
-      </form>
-      <p id="status-message" class="status-message"></p>
-    </section>
+  <section class="hero-strip">
+    <div class="hero-inner">
+      <h1>Vessel Requisition &amp; Quote Processing</h1>
+      <p>Upload a requisition file, review matched products, and export a draft quotation</p>
+      <div class="hero-badges" aria-label="Athena capabilities">
+        <span><i class="ti ti-clock" aria-hidden="true"></i>24/7 Operations</span>
+        <span><i class="ti ti-anchor" aria-hidden="true"></i>UK &amp; International Ports</span>
+        <span><i class="ti ti-ship" aria-hidden="true"></i>Fast Vessel Delivery</span>
+      </div>
+    </div>
+  </section>
+
+  <main class="layout">
+    <div class="main-grid">
+      <aside class="left-rail">
+        <section class="panel upload-panel">
+          <p class="section-eyebrow">Vessel &amp; client details</p>
+
+          <form id="quote-form" class="quote-form" autocomplete="off">
+            <div class="fields-grid">
+              <label class="field-card">
+                <span class="field-label">Client name</span>
+                <input type="text" name="clientName" autocomplete="off" required>
+              </label>
+              <label class="field-card">
+                <span class="field-label">Vessel name</span>
+                <input type="text" name="vesselName" autocomplete="off" required>
+              </label>
+              <label class="field-card">
+                <span class="field-label">IMO number</span>
+                <input type="text" name="imoNumber" autocomplete="off" required>
+              </label>
+              <label class="field-card">
+                <span class="field-label">Port of delivery</span>
+                <input type="text" name="port" autocomplete="off">
+              </label>
+              <label class="field-card">
+                <span class="field-label">Scheduled arrival</span>
+                <input type="date" name="scheduledArrival" autocomplete="off" required>
+              </label>
+              <label class="field-card">
+                <span class="field-label">Contact email</span>
+                <input type="email" name="contactEmail" autocomplete="off" required>
+              </label>
+              <label class="field-card field-full">
+                <span class="field-label">Agent Details</span>
+                <input type="text" name="agentDetails" autocomplete="off" required>
+              </label>
+            </div>
+
+            <div class="upload-block">
+              <p class="section-eyebrow upload-eyebrow">Requisition file</p>
+              <label class="upload-zone file-field" for="requisition-file-input" id="upload-zone-label">
+                <i class="ti ti-upload" aria-hidden="true" id="upload-zone-icon"></i>
+                <strong id="upload-zone-text">Drop file here or click to upload</strong>
+                <span id="upload-zone-hint">XLS · XLSX · CSV · PDF - max 10 MB</span>
+                <input id="requisition-file-input" type="file" name="requisitionFile" accept=".csv,.xlsx,.xls,.pdf" required>
+              </label>
+              <button type="submit" id="process-button" class="btn-primary">Process requisition</button>
+              <a class="sample-link" href="/examples/sample-requisition.csv" download>Download Sample Requisition</a>
+            </div>
+          </form>
+
+          <p id="status-message" class="status-message"></p>
+        </section>
+      </aside>
+
+      <section class="right-rail">
+        <section class="panel history-panel">
+          <div class="section-header">
+            <p class="section-eyebrow">Recent quotes</p>
+            <h2>Recent quotes</h2>
+            <p>Stored locally for review, audit, and future matching improvements.</p>
+          </div>
+          <div id="history-list" class="history-list"></div>
+        </section>
+      </section>
+    </div>
 
     <section class="panel summary-panel hidden" id="summary-panel">
       <div class="quote-summary-header">
         <div>
-          <h2>Current Quote</h2>
-          <p>Kindly review the draft quotation and apply any required changes. Before downloading the PDF or Excel file(s), please ensure you select “Save Review.” You may close the view once your review is complete.</p>
+          <p class="section-eyebrow">Quote summary</p>
+          <h2>Current quote</h2>
+          <p>Review matched lines, set availability, then save before export.</p>
         </div>
-        <button id="close-quote-view-button" class="close-view-button" type="button" aria-label="Close current quote view">X</button>
+        <div class="summary-tools">
+          <span class="process-time">Process time: <strong id="summary-time">0 sec</strong></span>
+          <button id="close-quote-view-button" class="close-view-button" type="button" aria-label="Close current quote view">Close</button>
+        </div>
       </div>
       <div class="summary-grid">
         <article>
-          <span>Total Lines</span>
           <strong id="summary-lines">0</strong>
+          <span>Total lines</span>
         </article>
         <article>
-          <span>Review Required</span>
           <strong id="summary-review">0</strong>
+          <span>Review required</span>
         </article>
         <article>
-          <span>Draft Total</span>
+          <strong id="summary-unavailable">0</strong>
+          <span>Unavailable</span>
+        </article>
+        <article>
           <strong id="summary-total">£0.00</strong>
+          <span>Draft total (GBP)</span>
         </article>
-        <article>
-          <span>Process Time</span>
-          <strong id="summary-time">0 sec</strong>
-        </article>
-      </div>
-      <div class="quote-actions">
-        <button id="refresh-quote-button" type="button">Refresh Quote</button>
-        <button id="save-review-button" type="button">Save Review</button>
-        <button id="download-excel-button" type="button">Download Excel</button>
-        <button id="download-pdf-button" type="button">Download PDF</button>
       </div>
     </section>
 
     <section class="panel results-panel hidden" id="results-panel">
       <div class="section-header">
-        <h2>Draft Quote Review</h2>
-        <p>Adjust product, unit, or price before export if a line needs correction.</p>
+        <p class="section-eyebrow">Draft quote review</p>
+        <h2>Draft quote review</h2>
+        <p>Adjust product, quantity, unit, and availability before export.</p>
       </div>
       <div class="table-wrapper">
         <table id="results-table">
@@ -111,22 +161,124 @@
               <th>Price / unit</th>
               <th>Total</th>
               <th>Action</th>
+              <th>Avail.</th>
             </tr>
           </thead>
           <tbody></tbody>
         </table>
       </div>
-    </section>
 
-    <section class="panel history-panel">
-      <div class="section-header">
-        <h2>Recent Quotes</h2>
-        <p>Stored locally for review, audit, and future matching improvements.</p>
+      <div class="quote-actions">
+        <span class="site-signature">athenamarine.co.uk</span>
+        <div class="action-buttons">
+          <button id="refresh-quote-button" type="button" class="btn-ghost">Refresh quote</button>
+          <button id="save-review-button" type="button" class="btn-ghost">Save review</button>
+          <button id="download-excel-button" type="button" class="btn-ghost">Export Excel</button>
+          <button id="download-pdf-button" type="button" class="btn-primary">Download PDF</button>
+        </div>
       </div>
-      <div id="history-list" class="history-list"></div>
     </section>
   </main>
 
+  <footer class="page-footer">
+    <div class="page-footer-inner">
+      <span>© 2026 Athena Marine Supplies LTD. All rights reserved.</span>
+      <nav aria-label="Footer links">
+        <a href="https://www.athenamarine.co.uk/privacy%20policy.html" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+        <span>·</span>
+        <a href="https://www.athenamarine.co.uk/terms%20conditions.html" target="_blank" rel="noopener noreferrer">Terms &amp; Conditions</a>
+      </nav>
+    </div>
+  </footer>
+
   <script type="module" src="/app.js"></script>
+
+  <!-- =====================
+       LOGOUT CONFIRMATION MODAL
+       ===================== -->
+  <div id="logout-modal-overlay"
+       role="dialog"
+       aria-modal="true"
+       aria-labelledby="logout-modal-title"
+       style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);display:none;align-items:center;justify-content:center;padding:1rem">
+    <div style="background:#fff;border-radius:10px;border:1px solid #e5e7eb;max-width:480px;width:100%;padding:2rem 2.25rem;box-shadow:0 8px 32px rgba(0,0,0,0.18)">
+      <div style="display:flex;align-items:flex-start;gap:0.9rem;margin-bottom:1.25rem">
+        <i class="ti ti-alert-triangle" aria-hidden="true"
+           style="font-size:1.75rem;color:#003459;flex-shrink:0;margin-top:2px"></i>
+        <div>
+          <p id="logout-modal-title"
+             style="font-size:15px;font-weight:600;color:#003459;margin:0 0 0.5rem">Before you log out &mdash; have you saved your work?</p>
+          <p style="font-size:13px;color:#6b7280;margin:0;line-height:1.6">
+            Any quotes not downloaded will not be visible when you next log in from a new session.
+            We strongly recommend downloading your latest quote before logging out.
+          </p>
+        </div>
+      </div>
+
+      <div style="display:flex;flex-wrap:wrap;gap:0.6rem;margin-top:1.5rem">
+        <button id="modal-download-btn" type="button"
+                style="flex:1;min-width:160px;height:38px;background:#003459;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;display:flex;align-items:center;justify-content:center;gap:6px">
+          <i class="ti ti-download" aria-hidden="true"></i> Download Latest Quote
+        </button>
+        <button id="modal-logout-btn" type="button"
+                style="flex:1;min-width:130px;height:38px;background:transparent;color:#791f1f;border:1px solid #f5c6c6;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit">
+          Log Out Anyway
+        </button>
+        <button id="modal-cancel-btn" type="button"
+                style="width:100%;height:38px;background:transparent;color:#6b7280;border:1px solid #e5e7eb;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit">
+          Cancel &mdash; Stay Logged In
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const logoutModal   = document.getElementById('logout-modal-overlay');
+    const logoutBtn     = document.getElementById('logout-btn');
+    const modalDownload = document.getElementById('modal-download-btn');
+    const modalLogout   = document.getElementById('modal-logout-btn');
+    const modalCancel   = document.getElementById('modal-cancel-btn');
+
+    function showLogoutModal() {
+      logoutModal.style.display = 'flex';
+      modalLogout.focus();
+    }
+
+    function hideLogoutModal() {
+      logoutModal.style.display = 'none';
+    }
+
+    async function doLogout() {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    }
+
+    logoutBtn.addEventListener('click', showLogoutModal);
+
+    // Download latest quote — triggers the existing Excel download button in the app
+    modalDownload.addEventListener('click', () => {
+      const dlBtn = document.getElementById('download-excel-button');
+      if (dlBtn && !dlBtn.disabled && !dlBtn.closest('.hidden')) {
+        dlBtn.click();
+      } else {
+        // No current quote open — inform the user
+        modalDownload.textContent = 'No quote currently open';
+        modalDownload.disabled = true;
+      }
+    });
+
+    modalLogout.addEventListener('click', doLogout);
+    modalCancel.addEventListener('click', hideLogoutModal);
+
+    // Close on overlay click
+    logoutModal.addEventListener('click', (e) => {
+      if (e.target === logoutModal) hideLogoutModal();
+    });
+
+    // Close on Escape
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && logoutModal.style.display === 'flex') hideLogoutModal();
+    });
+  </script>
 </body>
 </html>

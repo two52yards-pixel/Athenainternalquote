@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel — Athena Marine Quote Desk</title>
+  <link rel="icon" href="https://athenamarine.co.uk/logo/favicon.ico" type="image/x-icon">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <link rel="stylesheet" href="main-b2b.css">
+  <style>
+    .admin-layout { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem; }
+    .admin-header { margin-bottom: 2rem; }
+    .admin-header h1 { font-size: 22px; font-weight: 600; color: var(--navy); margin-bottom: 0.25rem; }
+    .admin-header p  { font-size: 13px; color: var(--muted); }
+
+    .stat-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 2rem; }
+    .stat-card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+                 padding: 1rem 1.5rem; flex: 1; min-width: 140px; }
+    .stat-card strong { display: block; font-size: 24px; font-weight: 700; color: var(--navy); }
+    .stat-card span   { font-size: 12px; color: var(--muted); }
+
+    .section-tabs { display: flex; gap: 0.5rem; margin-bottom: 1.25rem; flex-wrap: wrap; }
+    .tab-btn { height: 34px; padding: 0 1rem; border-radius: 6px; border: 1px solid var(--border);
+               background: var(--panel); color: var(--muted); font-size: 13px; font-weight: 500;
+               cursor: pointer; font-family: inherit; transition: all 0.15s; }
+    .tab-btn.active { background: var(--navy); color: #fff; border-color: var(--navy); }
+
+    .client-block { background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+                    margin-bottom: 1rem; overflow: hidden; }
+    .client-block-header { display: flex; align-items: center; justify-content: space-between;
+                           padding: 0.9rem 1.25rem; cursor: pointer; user-select: none; }
+    .client-block-header:hover { background: #f9fafb; }
+    .client-block-header .client-name { font-weight: 600; font-size: 14px; color: var(--navy); }
+    .client-block-header .client-meta { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .client-block-header .toggle-icon { color: var(--muted); font-size: 18px; transition: transform 0.2s; }
+    .client-block.open .toggle-icon { transform: rotate(180deg); }
+
+    .client-quotes { display: none; border-top: 1px solid var(--border); overflow-x: auto; }
+    .client-block.open .client-quotes { display: block; }
+
+    table.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.admin-table th { text-align: left; padding: 0.6rem 1rem; background: #f9fafb;
+                           font-weight: 500; color: var(--muted); font-size: 12px;
+                           border-bottom: 1px solid var(--border); }
+    table.admin-table td { padding: 0.65rem 1rem; border-bottom: 1px solid var(--border);
+                           color: var(--text); vertical-align: top; }
+    table.admin-table tr:last-child td { border-bottom: none; }
+    table.admin-table tr:hover td { background: #f9fafb; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 20px; font-size: 11px; font-weight: 500; }
+    .badge-open     { background: var(--ok-bg);      color: var(--ok-text); }
+    .badge-closed   { background: var(--border);     color: var(--muted); }
+    .badge-orphaned { background: var(--review-bg);  color: var(--review-text); }
+
+    .empty-state { padding: 2rem; text-align: center; color: var(--muted); font-size: 13px; }
+
+    .search-bar { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; align-items: center; }
+    .search-bar input { flex: 1; height: 38px; padding: 0 0.75rem; border: 1px solid var(--input-border);
+                        border-radius: 6px; font-size: 13px; font-family: inherit; color: var(--text);
+                        outline: none; }
+    .search-bar input:focus { border-color: var(--navy); box-shadow: 0 0 0 3px rgba(0,52,89,0.08); }
+
+    @media (max-width: 640px) {
+      .admin-layout { padding: 1.25rem 1rem; }
+      .stat-row { gap: 0.6rem; }
+    }
+  </style>
+</head>
+<body>
+
+  <header class="top-nav" aria-label="Primary">
+    <div class="top-nav-inner">
+      <a href="/admin.html" class="brand" aria-label="Athena Marine Admin">
+        <img src="50.png" alt="Athena Marine logo" class="brand-logo">
+        <span class="brand-text">Athena Marine — Admin</span>
+      </a>
+      <nav class="top-links" aria-label="Quick links">
+        <button id="logout-btn" type="button"
+                style="background:transparent;border:1px solid rgba(255,255,255,0.35);color:#fff;border-radius:5px;padding:0 12px;height:30px;font-size:13px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;font-family:inherit;"
+                aria-label="Sign out">
+          <i class="ti ti-logout" aria-hidden="true"></i> Sign out
+        </button>
+      </nav>
+    </div>
+  </header>
+
+  <div class="admin-layout">
+
+    <div class="admin-header">
+      <p class="section-eyebrow">Admin Panel</p>
+      <h1>All Quotes — All Clients</h1>
+      <p>Read-only overview of every quote across every registered client.</p>
+    </div>
+
+    <!-- Stats row -->
+    <div class="stat-row" id="stat-row">
+      <div class="stat-card"><strong id="stat-clients">—</strong><span>Clients</span></div>
+      <div class="stat-card"><strong id="stat-quotes">—</strong><span>Total quotes</span></div>
+      <div class="stat-card"><strong id="stat-open">—</strong><span>Open</span></div>
+      <div class="stat-card"><strong id="stat-orphaned">—</strong><span>Orphaned</span></div>
+    </div>
+
+    <!-- Section tabs -->
+    <div class="section-tabs">
+      <button class="tab-btn active" data-tab="clients">By Client</button>
+      <button class="tab-btn" data-tab="orphaned">Orphaned Quotes</button>
+    </div>
+
+    <!-- Search -->
+    <div class="search-bar">
+      <i class="ti ti-search" style="color:var(--muted)" aria-hidden="true"></i>
+      <input id="search-input" type="text" placeholder="Search by client, vessel, quote number…" autocomplete="off">
+    </div>
+
+    <!-- Loading -->
+    <div id="loading-state" style="text-align:center;padding:3rem;color:var(--muted)">
+      <i class="ti ti-loader-2" style="font-size:1.75rem;animation:spin 0.9s linear infinite" aria-hidden="true"></i>
+      <p style="margin-top:0.75rem;font-size:13px">Loading quotes…</p>
+    </div>
+
+    <!-- Error -->
+    <div id="error-state" style="display:none;text-align:center;padding:3rem;color:var(--danger-text)">
+      <i class="ti ti-alert-circle" style="font-size:1.75rem" aria-hidden="true"></i>
+      <p style="margin-top:0.75rem;font-size:13px" id="error-msg">Failed to load quotes.</p>
+    </div>
+
+    <!-- By-client view -->
+    <div id="tab-clients" style="display:none"></div>
+
+    <!-- Orphaned quotes view -->
+    <div id="tab-orphaned" style="display:none"></div>
+
+  </div>
+
+  <style>
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+
+  <script>
+    // =====================
+    // STATE
+    // =====================
+    let allQuotes   = [];
+    let allClients  = [];
+    let activeTab   = 'clients';
+    let searchQuery = '';
+
+    // =====================
+    // FETCH
+    // =====================
+    async function loadData() {
+      try {
+        const res  = await fetch('/api/admin/quotes');
+        if (res.status === 403) {
+          window.location.href = '/';
+          return;
+        }
+        if (!res.ok) throw new Error(await res.text());
+
+        const data = await res.json();
+        allQuotes  = data.quotes  || [];
+        allClients = data.clients || [];
+
+        document.getElementById('loading-state').style.display = 'none';
+        updateStats();
+        renderActiveTab();
+      } catch (err) {
+        document.getElementById('loading-state').style.display = 'none';
+        document.getElementById('error-state').style.display = 'block';
+        document.getElementById('error-msg').textContent = err.message || 'Failed to load quotes.';
+      }
+    }
+
+    // =====================
+    // STATS
+    // =====================
+    function updateStats() {
+      const knownClientIds = new Set(allClients.map(c => c.id));
+      const orphaned = allQuotes.filter(q => !knownClientIds.has(q.clientId));
+      const open     = allQuotes.filter(q => q.quoteStatus === 'OPEN');
+
+      document.getElementById('stat-clients').textContent  = allClients.length;
+      document.getElementById('stat-quotes').textContent   = allQuotes.length;
+      document.getElementById('stat-open').textContent     = open.length;
+      document.getElementById('stat-orphaned').textContent = orphaned.length;
+    }
+
+    // =====================
+    // ESCAPING
+    // =====================
+    function esc(v) {
+      return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    // =====================
+    // QUOTE ROW
+    // =====================
+    function quoteRow(q) {
+      const badge = q.isOrphaned
+        ? '<span class="badge badge-orphaned">orphaned</span>'
+        : q.quoteStatus === 'CLOSED'
+          ? '<span class="badge badge-closed">closed</span>'
+          : '<span class="badge badge-open">open</span>';
+
+      const dlBase = `/api/admin/quotes/${encodeURIComponent(q.clientId)}/${encodeURIComponent(q.id)}`;
+      const dlButtons = q.isOrphaned ? '<span style="color:var(--muted);font-size:12px">—</span>' : `
+        <a href="${dlBase}/export.xlsx" download
+           style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:4px;border:1px solid #d0d5dd;background:#fff;color:var(--navy);font-size:12px;text-decoration:none;font-weight:500" title="Download Excel">
+          <i class="ti ti-file-spreadsheet" aria-hidden="true"></i> XLSX
+        </a>
+        <a href="${dlBase}/export.pdf" download
+           style="display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:4px;border:1px solid #d0d5dd;background:#fff;color:var(--navy);font-size:12px;text-decoration:none;font-weight:500;margin-left:4px" title="Download PDF">
+          <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
+        </a>`;
+
+      return `<tr>
+        <td>${esc(q.quoteNumber || '—')}</td>
+        <td>${esc(q.clientName || '—')}</td>
+        <td>${esc(q.vesselName || '—')}</td>
+        <td>${esc(q.port || '—')}</td>
+        <td>${q.summary?.lineCount ?? '—'}</td>
+        <td>${badge}</td>
+        <td style="white-space:nowrap">${q.updatedAt ? new Date(q.updatedAt).toLocaleString('en-GB') : '—'}</td>
+        <td style="white-space:nowrap">${dlButtons}</td>
+      </tr>`;
+    }
+
+    // =====================
+    // QUOTE TABLE
+    // =====================
+    function quoteTable(quotes) {
+      if (!quotes.length) {
+        return '<p class="empty-state">No quotes.</p>';
+      }
+      return `<table class="admin-table">
+        <thead><tr>
+          <th>Quote #</th><th>Client name</th><th>Vessel</th><th>Port</th><th>Lines</th><th>Status</th><th>Updated</th><th>Download</th>
+        </tr></thead>
+        <tbody>${quotes.map(quoteRow).join('')}</tbody>
+      </table>`;
+    }
+
+    // =====================
+    // RENDER — BY CLIENT
+    // =====================
+    function renderByClient(quotes, clients) {
+      const container = document.getElementById('tab-clients');
+      const knownIds  = new Set(clients.map(c => c.id));
+      const q         = searchQuery.toLowerCase();
+
+      // Build client map
+      const byClient = {};
+      for (const c of clients) byClient[c.id] = { client: c, quotes: [] };
+
+      for (const quote of quotes) {
+        if (!knownIds.has(quote.clientId)) continue; // orphaned handled separately
+        if (!byClient[quote.clientId]) continue;
+        byClient[quote.clientId].quotes.push(quote);
+      }
+
+      // Filter
+      const filtered = Object.values(byClient).filter(({ client, quotes: cq }) => {
+        if (!q) return true;
+        const hay = `${client.fullName} ${client.email} ${cq.map(x => `${x.quoteNumber} ${x.vesselName} ${x.clientName}`).join(' ')}`.toLowerCase();
+        return hay.includes(q);
+      });
+
+      if (!filtered.length) {
+        container.innerHTML = '<p class="empty-state">No matching clients or quotes.</p>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(({ client, quotes: cq }) => `
+        <div class="client-block" data-client-id="${esc(client.id)}">
+          <div class="client-block-header" role="button" tabindex="0"
+               aria-expanded="false"
+               onclick="toggleBlock(this.closest('.client-block'))"
+               onkeydown="if(event.key==='Enter'||event.key===' ')toggleBlock(this.closest('.client-block'))">
+            <div>
+              <div class="client-name">${esc(client.fullName)}</div>
+              <div class="client-meta">${esc(client.email)}${client.companyName ? ' · ' + esc(client.companyName) : ''} · ${cq.length} quote${cq.length !== 1 ? 's' : ''}</div>
+            </div>
+            <i class="ti ti-chevron-down toggle-icon" aria-hidden="true"></i>
+          </div>
+          <div class="client-quotes">
+            ${quoteTable(cq)}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    // =====================
+    // RENDER — ORPHANED
+    // =====================
+    function renderOrphaned(quotes) {
+      const container = document.getElementById('tab-orphaned');
+      const q = searchQuery.toLowerCase();
+      const orphaned = quotes.filter(x => x.isOrphaned);
+      const filtered = q
+        ? orphaned.filter(x => `${x.quoteNumber} ${x.vesselName} ${x.clientName} ${x.clientId}`.toLowerCase().includes(q))
+        : orphaned;
+
+      if (!filtered.length) {
+        container.innerHTML = '<p class="empty-state">No orphaned quotes.</p>';
+        return;
+      }
+      container.innerHTML = `
+        <div class="client-block open">
+          <div class="client-block-header">
+            <div>
+              <div class="client-name">Orphaned Quotes</div>
+              <div class="client-meta">Created before user auth was introduced &mdash; not visible to any client</div>
+            </div>
+          </div>
+          <div class="client-quotes" style="display:block">
+            ${quoteTable(filtered)}
+          </div>
+        </div>`;
+    }
+
+    // =====================
+    // TOGGLE ACCORDION
+    // =====================
+    function toggleBlock(block) {
+      const isOpen = block.classList.toggle('open');
+      block.querySelector('.client-block-header').setAttribute('aria-expanded', isOpen);
+    }
+    window.toggleBlock = toggleBlock;
+
+    // =====================
+    // RENDER ACTIVE TAB
+    // =====================
+    function renderActiveTab() {
+      document.getElementById('tab-clients').style.display  = activeTab === 'clients'  ? 'block' : 'none';
+      document.getElementById('tab-orphaned').style.display = activeTab === 'orphaned' ? 'block' : 'none';
+
+      if (activeTab === 'clients')  renderByClient(allQuotes, allClients);
+      if (activeTab === 'orphaned') renderOrphaned(allQuotes);
+    }
+
+    // =====================
+    // TABS
+    // =====================
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        activeTab = btn.dataset.tab;
+        renderActiveTab();
+      });
+    });
+
+    // =====================
+    // SEARCH
+    // =====================
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      searchQuery = e.target.value.trim();
+      renderActiveTab();
+    });
+
+    // =====================
+    // LOGOUT
+    // =====================
+    document.getElementById('logout-btn').addEventListener('click', async () => {
+      await fetch('/api/auth/logout', { method: 'POST' });
+      window.location.href = '/login.html';
+    });
+
+    // =====================
+    // BOOT
+    // =====================
+    loadData();
+  </script>
+
+</body>
+</html>

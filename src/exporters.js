@@ -177,7 +177,7 @@ function canWriteIndependentCellBlock(worksheet, addresses) {
 }
 
 function buildSpecificationText(item) {
-  if (item.status === 'UNAVAILABLE') {
+  if (isUnavailableExportItem(item)) {
     return 'Unavailable';
   }
 
@@ -305,6 +305,10 @@ function writeItemsToWorksheet(worksheet, items, itemStartRow, itemEndRow) {
   }
 }
 
+function isUnavailableExportItem(item) {
+  return item?.available === false || item?.isUnavailable === true || item?.status === 'UNAVAILABLE';
+}
+
 function ensureItemTotalMerge(worksheet, rowNumber) {
   ensureMergedRange(worksheet, `G${rowNumber}:H${rowNumber}`);
 }
@@ -424,10 +428,11 @@ function styleItemHeaderRow(worksheet, rowNumber) {
 }
 
 function styleItemRow(worksheet, rowNumber, item) {
-  const fillColor = item.status === 'UNAVAILABLE'
+  const isUnavailable = isUnavailableExportItem(item);
+  const fillColor = isUnavailable
     ? EXCEL_COLORS.unavailable
     : EXCEL_COLORS.white;
-  const borderColor = item.status === 'UNAVAILABLE'
+  const borderColor = isUnavailable
     ? EXCEL_COLORS.unavailableBorder
     : EXCEL_COLORS.border;
 
@@ -439,7 +444,8 @@ function styleItemRow(worksheet, rowNumber, item) {
         name: 'Aptos',
         size: 10,
         color: { argb: EXCEL_COLORS.ink },
-        italic: item.status === 'UNAVAILABLE'
+        italic: isUnavailable,
+        strike: isUnavailable
       },
       alignment: {
         vertical: 'middle',
@@ -453,13 +459,13 @@ function styleItemRow(worksheet, rowNumber, item) {
 
   applyCellStyle(worksheet.getCell(`G${rowNumber}`), {
     alignment: { horizontal: 'right', vertical: 'middle' },
-    font: { name: 'Aptos', size: 10, color: { argb: EXCEL_COLORS.ink } },
+    font: { name: 'Aptos', size: 10, color: { argb: EXCEL_COLORS.ink }, strike: isUnavailable },
     numFmt: '£#,##0.00'
   });
 
   applyCellStyle(worksheet.getCell(`H${rowNumber}`), {
     alignment: { horizontal: 'right', vertical: 'middle' },
-    font: { name: 'Aptos', size: 10, bold: true, color: { argb: EXCEL_COLORS.navyDeep } },
+    font: { name: 'Aptos', size: 10, bold: true, color: { argb: EXCEL_COLORS.navyDeep }, strike: isUnavailable },
     numFmt: '£#,##0.00'
   });
 }
@@ -567,29 +573,43 @@ export async function buildExcelBuffer(quote) {
   for (let index = 0; index < items.length; index += 1) {
     const rowNumber = itemStartRow + index;
     const item = items[index];
+    const isUnavailable = isUnavailableExportItem(item);
+    const supplyQuantity = isUnavailable ? 0 : (Number(item.supplyQuantity ?? 0) || 0);
+    const linePrice = Number(item.price || 0);
 
     worksheet.getCell(`A${rowNumber}`).value = item.matchedProductKey || item.itemCode || '';
     worksheet.getCell(`B${rowNumber}`).value = item.originalItem || '';
     worksheet.getCell(`C${rowNumber}`).value = buildSpecificationText(item);
-    worksheet.getCell(`D${rowNumber}`).value = Number(item.supplyQuantity ?? 0) || 0;
+    worksheet.getCell(`D${rowNumber}`).value = supplyQuantity;
     worksheet.getCell(`E${rowNumber}`).value = getUnitType(item.unit);
-    worksheet.getCell(`F${rowNumber}`).value = Number(item.price || 0);
+    worksheet.getCell(`F${rowNumber}`).value = linePrice;
 
     ensureItemTotalMerge(worksheet, rowNumber);
     worksheet.getCell(`G${rowNumber}`).value = { formula: `D${rowNumber}*F${rowNumber}` };
+    worksheet.getCell(`K${rowNumber}`).value = isUnavailable ? 'Unavailable' : '';
+
+    if (isUnavailable) {
+      for (const column of ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'K']) {
+        const cell = worksheet.getCell(`${column}${rowNumber}`);
+        cell.font = {
+          ...(cell.font || {}),
+          color: { argb: 'FF9CA3AF' },
+          strike: true
+        };
+      }
+    }
+
     styleItemRow(worksheet, rowNumber, item);
   }
 
   const subtotalRow = itemStartRow + items.length;
   const calloutRow = subtotalRow + 1;
   const shippingRow = subtotalRow + 2;
-  const vatRow = subtotalRow + 3;
-  const totalRow = subtotalRow + 4;
+  const totalRow = subtotalRow + 3;
 
   writeMergedValue(worksheet, `F${subtotalRow}`, 'Subtotal');
   writeMergedValue(worksheet, `F${calloutRow}`, 'SAT - SUN Callout');
   writeMergedValue(worksheet, `F${shippingRow}`, 'Shipping Charge');
-  writeMergedValue(worksheet, `F${vatRow}`, 'VAT');
   writeMergedValue(worksheet, `F${totalRow}`, 'Grand Total');
 
   for (let rowNumber = subtotalRow; rowNumber <= totalRow; rowNumber += 1) {
@@ -605,8 +625,7 @@ export async function buildExcelBuffer(quote) {
   worksheet.getCell(`H${subtotalRow}`).value = { formula: `SUM(G${itemStartRow}:G${itemEndRow})` };
   worksheet.getCell(`H${calloutRow}`).value = isWeekend ? 150 : 0;
   worksheet.getCell(`H${shippingRow}`).value = lowOrder ? 250 : 0;
-  worksheet.getCell(`H${vatRow}`).value = { formula: `0.2*(H${subtotalRow}+H${shippingRow})` };
-  worksheet.getCell(`H${totalRow}`).value = { formula: `H${subtotalRow}+H${shippingRow}+H${vatRow}` };
+  worksheet.getCell(`H${totalRow}`).value = { formula: `H${subtotalRow}+H${shippingRow}` };
 
   return workbook.xlsx.writeBuffer();
 }
@@ -619,7 +638,7 @@ function drawLabelValue(document, label, value, x, y, width, options = {}) {
 }
 
 function rowStatusText(item) {
-  if (item.status === 'UNAVAILABLE') {
+  if (isUnavailableExportItem(item)) {
     return 'Unavailable';
   }
 
@@ -669,15 +688,16 @@ function measureTableRowHeight(document, values, columnWidths) {
 function drawTableRow(document, item, rowNumber, startX, startY, columnWidths) {
   const columns = getTableRowValues(item, rowNumber);
   const rowHeight = measureTableRowHeight(document, columns, columnWidths);
-  const rowFill = item.status === 'UNAVAILABLE'
+  const isUnavailable = isUnavailableExportItem(item);
+  const rowFill = isUnavailable
     ? PDF_COLORS.unavailable
     : (rowNumber % 2 === 0 ? PDF_COLORS.zebra : '#ffffff');
-  const strokeColor = item.status === 'UNAVAILABLE' ? PDF_COLORS.unavailableBorder : PDF_COLORS.border;
+  const strokeColor = isUnavailable ? PDF_COLORS.unavailableBorder : PDF_COLORS.border;
 
   let cursorX = startX;
   document.save();
   document.rect(startX, startY, columnWidths.reduce((sum, width) => sum + width, 0), rowHeight).fillAndStroke(rowFill, strokeColor);
-  document.font('Helvetica').fontSize(9).fillColor(PDF_COLORS.text);
+  document.font('Helvetica').fontSize(9).fillColor(isUnavailable ? PDF_COLORS.muted : PDF_COLORS.text);
 
   columns.forEach((value, index) => {
     document.text(String(value || '-'), cursorX + 6, startY + 6, {
@@ -692,6 +712,19 @@ function drawTableRow(document, item, rowNumber, startX, startY, columnWidths) {
     cursorX += columnWidths[index];
   });
   document.restore();
+
+  if (isUnavailable) {
+    let strikeX = startX;
+    document.save();
+    document.strokeColor('#9ca3af').lineWidth(0.8);
+    columns.forEach((_, index) => {
+      document.moveTo(strikeX + 6, startY + (rowHeight / 2) + 2)
+        .lineTo(strikeX + columnWidths[index] - 6, startY + (rowHeight / 2) + 2)
+        .stroke();
+      strikeX += columnWidths[index];
+    });
+    document.restore();
+  }
 
   return rowHeight;
 }
@@ -762,6 +795,14 @@ export function buildPdfBuffer(quote) {
     drawTableHeader(document, startX, cursorY, columnWidths);
     cursorY += 28;
 
+    const unavailableCount = quote.items.filter((item) => isUnavailableExportItem(item)).length;
+    const exportSubtotal = quote.items.reduce((sum, item) => {
+      if (isUnavailableExportItem(item)) {
+        return sum;
+      }
+      return sum + Number(item.total || 0);
+    }, 0);
+
     for (let index = 0; index < quote.items.length; index += 1) {
       const previewValues = getTableRowValues(quote.items[index], index);
       ensurePageSpace(measureTableRowHeight(document, previewValues, columnWidths), true);
@@ -774,17 +815,24 @@ export function buildPdfBuffer(quote) {
 
     const totalsX = startX + 320;
     document.save();
-    document.roundedRect(totalsX, cursorY, 203, 92, 12).fillAndStroke(PDF_COLORS.navySoft, PDF_COLORS.border);
+    document.roundedRect(totalsX, cursorY, 203, 68, 12).fillAndStroke(PDF_COLORS.navySoft, PDF_COLORS.border);
     document.roundedRect(totalsX, cursorY, 203, 24, 12).fill(PDF_COLORS.navySoft);
     document.restore();
     document.font('Helvetica-Bold').fontSize(10).fillColor(PDF_COLORS.navyDeep).text('QUOTE TOTALS', totalsX + 14, cursorY + 7, { width: 175, align: 'left' });
-    drawLabelValue(document, 'Subtotal', formatCurrency(quote.summary.totalValue), totalsX + 14, cursorY + 30, 175, { valueSize: 10 });
-    drawLabelValue(document, 'VAT', formatCurrency(0), totalsX + 14, cursorY + 54, 175, { valueSize: 10 });
-    document.font('Helvetica-Bold').fontSize(11).fillColor(PDF_COLORS.navyDeep).text('Total', totalsX + 14, cursorY + 76, { width: 80 });
-    document.font('Times-Bold').fontSize(14).fillColor(PDF_COLORS.navy).text(formatCurrency(quote.summary.totalValue), totalsX + 90, cursorY + 74, { width: 99, align: 'right' });
+    drawLabelValue(document, 'Subtotal', formatCurrency(exportSubtotal), totalsX + 14, cursorY + 30, 175, { valueSize: 10 });
+    document.font('Helvetica-Bold').fontSize(11).fillColor(PDF_COLORS.navyDeep).text('Total', totalsX + 14, cursorY + 52, { width: 80 });
+    document.font('Times-Bold').fontSize(14).fillColor(PDF_COLORS.navy).text(formatCurrency(exportSubtotal), totalsX + 90, cursorY + 50, { width: 99, align: 'right' });
 
-    cursorY += 122;
+    cursorY += 98;
     ensurePageSpace(70);
+
+    if (unavailableCount > 0) {
+      document.font('Helvetica-Oblique')
+        .fontSize(8.5)
+        .fillColor(PDF_COLORS.muted)
+        .text(`${unavailableCount} item(s) marked unavailable - excluded from total`, startX, cursorY, { width: pageWidth });
+      cursorY += 16;
+    }
 
     document.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_COLORS.muted).text('NOTES', startX, cursorY, { width: 80 });
     document.font('Helvetica').fontSize(9).fillColor(PDF_COLORS.muted);

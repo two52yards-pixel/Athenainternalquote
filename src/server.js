@@ -1,9 +1,14 @@
+import 'dotenv/config';
 import express from 'express';
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import multer from 'multer';
+import cookieParser from 'cookie-parser';
+
+import authRouter, { requireAuth, requireAdmin, meHandler } from './auth/authRoutes.js';
+import { seedAdminIfNeeded, listAllClients } from './auth/userStore.js';
 
 import { getR2File } from './r2GetFile.js';
 import { uploadToR2 } from './r2Upload.js';
@@ -12,7 +17,7 @@ import { buildExcelBuffer, buildPdfBuffer } from './exporters.js';
 import { loadPriceList, parseRequisitionFile } from './parser.js';
 import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
-import { listQuotes, loadQuote, saveQuote } from './quoteStore.js';
+import { listQuotes, loadQuote, saveQuote, listAllQuotes } from './quoteStore.js';
 
 // =====================
 // PATH SETUP
@@ -32,6 +37,30 @@ const upload = multer({ dest: uploadsDirectory });
 // MIDDLEWARE
 // =====================
 app.use(express.json({ limit: '5mb' }));
+app.use(cookieParser());
+
+// Auth routes (public — no JWT required)
+app.use('/api/auth', authRouter);
+
+// JWT guard — all other /api/* routes require authentication
+app.use('/api', requireAuth);
+
+// WHO AM I — returns logged-in client info (role included)
+app.get('/api/auth/me', requireAuth, meHandler);
+
+// Guard the main app page — admin gets redirected to admin panel
+app.get(['/', '/index.html'], requireAuth, (req, res) => {
+  if (req.client.role === 'admin') {
+    return res.redirect('/admin.html');
+  }
+  res.sendFile(path.join(projectRoot, 'public', 'index.html'));
+});
+
+// Guard admin panel — regular clients are redirected back to /
+app.get('/admin.html', requireAuth, requireAdmin, (req, res) => {
+  res.sendFile(path.join(projectRoot, 'public', 'admin.html'));
+});
+
 app.use(express.static(path.join(projectRoot, 'public')));
 app.use('/examples', express.static(path.join(projectRoot, 'data')));
 
@@ -52,7 +81,9 @@ const matcher = createMatchingEngine(catalog, [], {
 let quoteInsights = await loadQuoteInsights(catalog);
 
 function getQuoteScopeKey(req) {
-  return String(req.get('x-quote-scope') || '').trim();
+  // Use the authenticated client's ID as the scope key.
+  // This ensures each client only ever accesses their own quotes.
+  return req.client?.id || '';
 }
 
 // =====================
@@ -265,6 +296,58 @@ app.get('/r2/:key.xlsx', async (req, res) => {
 });
 
 // =====================
+// ADMIN ROUTES — admin role only
+// =====================
+
+// GET /api/admin/quotes — all quotes across all clients, grouped by client
+app.get('/api/admin/quotes', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const [allQuotes, allClients] = await Promise.all([listAllQuotes(), listAllClients()]);
+
+    // Build a lookup map: clientId -> client record
+    const clientMap = {};
+    for (const c of allClients) {
+      clientMap[c.id] = c;
+    }
+
+    // Tag each quote with client display info
+    // Quotes whose clientId doesn't match any known user are "orphaned"
+    const tagged = allQuotes.map(q => ({
+      ...q,
+      clientDisplayName: clientMap[q.clientId]?.fullName || null,
+      clientEmail: clientMap[q.clientId]?.email || null,
+      isOrphaned: !clientMap[q.clientId]
+    }));
+
+    res.json({ quotes: tagged, clients: allClients });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// ADMIN EXPORT XLSX — load by clientId (scopeKey) + quoteId
+app.get('/api/admin/quotes/:clientId/:id/export.xlsx', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const quote = await loadQuote(req.params.id, req.params.clientId);
+    const buffer = Buffer.from(await buildExcelBuffer(quote));
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${quote.quoteNumber || quote.id}.xlsx"`);
+    res.send(buffer);
+  } catch (err) { next(err); }
+});
+
+// ADMIN EXPORT PDF — load by clientId (scopeKey) + quoteId
+app.get('/api/admin/quotes/:clientId/:id/export.pdf', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const quote = await loadQuote(req.params.id, req.params.clientId);
+    const buffer = await buildPdfBuffer(quote);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${quote.quoteNumber || quote.id}.pdf"`);
+    res.send(buffer);
+  } catch (err) { next(err); }
+});
+
+// =====================
 // ERROR HANDLER
 // =====================
 app.use((err, req, res, next) => {
@@ -279,7 +362,9 @@ app.use((err, req, res, next) => {
 // =====================
 const port = Number(process.env.PORT || 3000);
 
-app.listen(port, () => {
+app.listen(port, async () => {
   console.log(`Server running on http://localhost:${port}`);
   console.log(`Price list: ${priceListPath}`);
+  // Seed admin account on first boot — safe no-op on subsequent starts
+  await seedAdminIfNeeded().catch(err => console.error('[auth] Admin seed error:', err.message));
 });
