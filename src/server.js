@@ -8,7 +8,7 @@ import multer from 'multer';
 import cookieParser from 'cookie-parser';
 
 import authRouter, { requireAuth, requireAdmin, meHandler } from './auth/authRoutes.js';
-import { seedAdminIfNeeded, listAllClients, blockClient, unblockClient, deleteClient } from './auth/userStore.js';
+import { initClientStore, seedAdminIfNeeded, listAllClients, blockClient, unblockClient, deleteClient } from './auth/userStore.js';
 
 import { getR2File } from './r2GetFile.js';
 import { uploadToR2 } from './r2Upload.js';
@@ -405,6 +405,8 @@ const port = Number(process.env.PORT || 3000);
 app.listen(port, async () => {
   console.log(`Server running on http://localhost:${port}`);
   console.log(`Price list: ${priceListPath}`);
+  // Restore clients.json from R2 if missing (fresh Render deploy)
+  await initClientStore().catch(err => console.error('[auth] Client store init error:', err.message));
   // Seed admin account on first boot — safe no-op on subsequent starts
   await seedAdminIfNeeded().catch(err => console.error('[auth] Admin seed error:', err.message));
 });

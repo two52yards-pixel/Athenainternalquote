@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
+import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import 'dotenv/config';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -9,6 +11,71 @@ const dataDir = path.resolve(__dirname, '../../data');
 
 const CLIENTS_FILE = path.join(dataDir, 'clients.json');
 const TOKENS_FILE  = path.join(dataDir, 'reset-tokens.json');
+
+// =====================
+// R2 SYNC FOR clients.json
+// =====================
+const R2_CLIENTS_KEY = 'system/clients.json';
+
+function getR2Client() {
+  if (!process.env.R2_ENDPOINT || !process.env.R2_BUCKET) return null;
+  return new S3Client({
+    region: 'auto',
+    endpoint: process.env.R2_ENDPOINT,
+    credentials: {
+      accessKeyId: process.env.R2_ACCESS_KEY_ID,
+      secretAccessKey: process.env.R2_SECRET_ACCESS_KEY,
+    },
+  });
+}
+
+async function backupClientsToR2(data) {
+  try {
+    const s3 = getR2Client();
+    if (!s3) return;
+    await s3.send(new PutObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: R2_CLIENTS_KEY,
+      Body: JSON.stringify(data, null, 2),
+      ContentType: 'application/json',
+    }));
+  } catch (err) {
+    console.warn('[userStore] R2 backup failed:', err.message);
+  }
+}
+
+async function restoreClientsFromR2() {
+  try {
+    const s3 = getR2Client();
+    if (!s3) return;
+    const result = await s3.send(new GetObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: R2_CLIENTS_KEY,
+    }));
+    const chunks = [];
+    for await (const chunk of result.Body) chunks.push(chunk);
+    const json = Buffer.concat(chunks).toString('utf8');
+    const data = JSON.parse(json);
+    await fs.mkdir(dataDir, { recursive: true });
+    await fs.writeFile(CLIENTS_FILE, json, 'utf8');
+    console.log(`[userStore] Restored ${data.length} client(s) from R2.`);
+  } catch (err) {
+    if (err.name !== 'NoSuchKey' && err.$metadata?.httpStatusCode !== 404) {
+      console.warn('[userStore] R2 restore failed:', err.message);
+    }
+  }
+}
+
+// Called once at server startup — ensures local file exists before any reads
+export async function initClientStore() {
+  await fs.mkdir(dataDir, { recursive: true });
+  try {
+    await fs.access(CLIENTS_FILE);
+  } catch {
+    // File missing (fresh deploy) — try restoring from R2
+    await restoreClientsFromR2();
+  }
+}
 
 // =====================
 // HELPERS
@@ -23,9 +90,14 @@ async function readJson(file) {
 }
 
 async function writeJson(file, data) {
+  await fs.mkdir(dataDir, { recursive: true });
   const tmp = file + '.tmp';
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf8');
   await fs.rename(tmp, file);
+  // Keep R2 in sync for the clients file so accounts survive re-deploys
+  if (file === CLIENTS_FILE) {
+    await backupClientsToR2(data);
+  }
 }
 
 // =====================
