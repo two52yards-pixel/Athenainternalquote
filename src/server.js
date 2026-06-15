@@ -8,7 +8,7 @@ import multer from 'multer';
 import cookieParser from 'cookie-parser';
 
 import authRouter, { requireAuth, requireAdmin, meHandler } from './auth/authRoutes.js';
-import { seedAdminIfNeeded, listAllClients } from './auth/userStore.js';
+import { seedAdminIfNeeded, listAllClients, blockClient, unblockClient, deleteClient } from './auth/userStore.js';
 
 import { getR2File } from './r2GetFile.js';
 import { uploadToR2 } from './r2Upload.js';
@@ -325,6 +325,43 @@ app.get('/api/admin/quotes', requireAuth, requireAdmin, async (req, res, next) =
     res.json({ quotes: tagged, clients: allClients });
   } catch (err) {
     next(err);
+  }
+});
+
+// ADMIN — LIST CLIENTS
+app.get('/api/admin/clients', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ clients: await listAllClients() });
+  } catch (err) { next(err); }
+});
+
+// ADMIN — BLOCK CLIENT
+app.post('/api/admin/clients/:id/block', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    await blockClient(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ADMIN — UNBLOCK CLIENT
+app.post('/api/admin/clients/:id/unblock', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    await unblockClient(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ADMIN — DELETE CLIENT
+app.delete('/api/admin/clients/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    await deleteClient(req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
   }
 });
 

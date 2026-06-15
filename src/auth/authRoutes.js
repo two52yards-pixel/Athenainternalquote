@@ -133,6 +133,10 @@ router.post('/login', authLimiter, async (req, res) => {
       return res.status(401).json({ error: 'No account found with this email address.' });
     }
 
+    if (client.blocked) {
+      return res.status(403).json({ error: 'This account has been suspended. Please contact Athena Marine.' });
+    }
+
     const valid = await bcrypt.compare(password, client.passwordHash);
     if (!valid) {
       return res.status(401).json({ error: 'Incorrect password. Please try again.' });

@@ -70,6 +70,34 @@ export async function listAllClients() {
   return clients.map(({ passwordHash: _pw, ...safe }) => safe);
 }
 
+export async function blockClient(clientId) {
+  const clients = await readJson(CLIENTS_FILE);
+  const idx = clients.findIndex(c => c.id === clientId);
+  if (idx === -1) throw new Error('Client not found');
+  if (clients[idx].role === 'admin') throw new Error('Cannot block an admin account');
+  clients[idx].blocked = true;
+  clients[idx].blockedAt = new Date().toISOString();
+  await writeJson(CLIENTS_FILE, clients);
+}
+
+export async function unblockClient(clientId) {
+  const clients = await readJson(CLIENTS_FILE);
+  const idx = clients.findIndex(c => c.id === clientId);
+  if (idx === -1) throw new Error('Client not found');
+  clients[idx].blocked = false;
+  clients[idx].blockedAt = null;
+  await writeJson(CLIENTS_FILE, clients);
+}
+
+export async function deleteClient(clientId) {
+  const clients = await readJson(CLIENTS_FILE);
+  const target = clients.find(c => c.id === clientId);
+  if (!target) throw new Error('Client not found');
+  if (target.role === 'admin') throw new Error('Cannot delete an admin account');
+  const filtered = clients.filter(c => c.id !== clientId);
+  await writeJson(CLIENTS_FILE, filtered);
+}
+
 // =====================
 // ADMIN SEEDING
 // Runs once on first boot only. Never overwrites existing admin.

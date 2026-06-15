@@ -104,6 +104,7 @@
     <div class="section-tabs">
       <button class="tab-btn active" data-tab="clients">By Client</button>
       <button class="tab-btn" data-tab="orphaned">Orphaned Quotes</button>
+      <button class="tab-btn" data-tab="manage">Manage Clients</button>
     </div>
 
     <!-- Search -->
@@ -130,10 +131,19 @@
     <!-- Orphaned quotes view -->
     <div id="tab-orphaned" style="display:none"></div>
 
+    <!-- Manage clients view -->
+    <div id="tab-manage" style="display:none"></div>
+
   </div>
 
   <style>
     @keyframes spin { to { transform: rotate(360deg); } }
+    .action-btn { height:30px;padding:0 12px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--navy);font-size:12px;font-weight:600;cursor:pointer; }
+    .action-btn:hover { background:var(--bg); }
+    .action-btn.danger-btn { border-color:var(--danger-strong);color:var(--danger-strong); }
+    .action-btn.danger-btn:hover { background:var(--danger-bg); }
+    tbody tr:not(:last-child) td { border-bottom:1px solid var(--border); }
+    tbody td { padding:10px 14px;vertical-align:middle; }
   </style>
 
   <script>
@@ -333,10 +343,110 @@
     function renderActiveTab() {
       document.getElementById('tab-clients').style.display  = activeTab === 'clients'  ? 'block' : 'none';
       document.getElementById('tab-orphaned').style.display = activeTab === 'orphaned' ? 'block' : 'none';
+      document.getElementById('tab-manage').style.display   = activeTab === 'manage'   ? 'block' : 'none';
 
       if (activeTab === 'clients')  renderByClient(allQuotes, allClients);
       if (activeTab === 'orphaned') renderOrphaned(allQuotes);
+      if (activeTab === 'manage')   renderManageClients();
     }
+
+    // =====================
+    // MANAGE CLIENTS
+    // =====================
+    function renderManageClients() {
+      const container = document.getElementById('tab-manage');
+      const q = searchQuery.toLowerCase();
+      const clients = q
+        ? allClients.filter(c => `${c.fullName} ${c.email} ${c.companyName}`.toLowerCase().includes(q))
+        : allClients;
+
+      if (!clients.length) {
+        container.innerHTML = '<p class="empty-state">No registered clients.</p>';
+        return;
+      }
+
+      const rows = clients.map(c => {
+        const isAdmin = c.role === 'admin';
+        const blocked = !!c.blocked;
+        const statusBadge = isAdmin
+          ? `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:#e0e7ff;color:#3730a3">Admin</span>`
+          : blocked
+            ? `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:var(--danger-bg);color:var(--danger-strong)">Blocked</span>`
+            : `<span style="display:inline-block;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;background:var(--ok-bg);color:var(--ok-text)">Active</span>`;
+
+        const actions = isAdmin ? '' : `
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap">
+            ${blocked
+              ? `<button class="action-btn" onclick="clientAction('unblock','${esc(c.id)}','${esc(c.fullName)}')">Unblock</button>`
+              : `<button class="action-btn danger-btn" onclick="clientAction('block','${esc(c.id)}','${esc(c.fullName)}')">Block</button>`
+            }
+            <button class="action-btn danger-btn" onclick="clientAction('delete','${esc(c.id)}','${esc(c.fullName)}')">Delete</button>
+          </div>`;
+
+        const registered = c.createdAt ? new Date(c.createdAt).toLocaleDateString('en-GB', { day:'2-digit', month:'short', year:'numeric' }) : '—';
+
+        return `<tr>
+          <td>${esc(c.fullName)}</td>
+          <td style="color:var(--muted)">${esc(c.email)}</td>
+          <td style="color:var(--muted)">${esc(c.companyName || '—')}</td>
+          <td style="color:var(--muted);white-space:nowrap">${registered}</td>
+          <td>${statusBadge}</td>
+          <td>${actions}</td>
+        </tr>`;
+      }).join('');
+
+      container.innerHTML = `
+        <div style="overflow-x:auto;border:1px solid var(--border);border-radius:8px">
+          <table style="width:100%;border-collapse:collapse;font-size:13px">
+            <thead>
+              <tr style="background:var(--bg)">
+                <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">Name</th>
+                <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">Email</th>
+                <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">Company</th>
+                <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">Registered</th>
+                <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">Status</th>
+                <th style="padding:10px 14px;text-align:left;font-weight:600;color:var(--muted);border-bottom:1px solid var(--border)">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+          </table>
+        </div>`;
+    }
+
+    async function clientAction(action, clientId, name) {
+      if (action === 'delete') {
+        if (!confirm(`Permanently delete the account for "${name}"?\n\nThis cannot be undone. Their quotes will become orphaned.`)) return;
+      } else if (action === 'block') {
+        if (!confirm(`Block "${name}"?\n\nThey will not be able to log in until unblocked.`)) return;
+      }
+
+      const url = action === 'delete'
+        ? `/api/admin/clients/${clientId}`
+        : `/api/admin/clients/${clientId}/${action}`;
+      const method = action === 'delete' ? 'DELETE' : 'POST';
+
+      try {
+        const res = await fetch(url, { method });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          alert(data.error || 'Action failed.');
+          return;
+        }
+        // Refresh client list from server
+        const clientsRes = await fetch('/api/admin/clients');
+        if (clientsRes.ok) {
+          const data = await clientsRes.json();
+          allClients = data.clients || [];
+          updateStats();
+          renderManageClients();
+        }
+      } catch {
+        alert('Network error. Please try again.');
+      }
+    }
+    window.clientAction = clientAction;
 
     // =====================
     // TABS
