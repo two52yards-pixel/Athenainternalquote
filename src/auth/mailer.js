@@ -1,30 +1,24 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
-function createTransporter() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: Number(process.env.SMTP_PORT || 587),
-    secure: Number(process.env.SMTP_PORT) === 465,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    }
-  });
+function resendConfigured() {
+  return !!process.env.RESEND_API_KEY;
 }
 
-function smtpConfigured() {
-  return !!(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+function getClient() {
+  return new Resend(process.env.RESEND_API_KEY);
 }
+
+const FROM_ADDRESS = process.env.RESEND_FROM || 'Athena Marine <onboarding@resend.dev>';
 
 export async function sendNewClientNotification({ fullName, email, companyName, createdAt }) {
-  if (!smtpConfigured() || !process.env.INFO_EMAIL) {
-    console.warn('[mailer] SMTP or INFO_EMAIL not configured — skipping new-client notification');
+  if (!resendConfigured() || !process.env.INFO_EMAIL) {
+    console.warn('[mailer] Resend or INFO_EMAIL not configured — skipping new-client notification');
     return;
   }
 
-  const transporter = createTransporter();
-  await transporter.sendMail({
-    from: `"Athena Marine Quote Desk" <${process.env.SMTP_USER}>`,
+  const resend = getClient();
+  await resend.emails.send({
+    from: FROM_ADDRESS,
     to: process.env.INFO_EMAIL,
     subject: `New client sign up: ${fullName}`,
     html: `
@@ -41,14 +35,14 @@ export async function sendNewClientNotification({ fullName, email, companyName, 
 }
 
 export async function sendPasswordResetEmail({ email, fullName, resetLink }) {
-  if (!smtpConfigured()) {
-    console.warn('[mailer] SMTP not configured — skipping password reset email');
+  if (!resendConfigured()) {
+    console.warn('[mailer] Resend not configured — skipping password reset email');
     return;
   }
 
-  const transporter = createTransporter();
-  await transporter.sendMail({
-    from: `"Athena Marine Quote Desk" <${process.env.SMTP_USER}>`,
+  const resend = getClient();
+  await resend.emails.send({
+    from: FROM_ADDRESS,
     to: email,
     subject: 'Reset your password — Athena Marine Quote Desk',
     html: `
@@ -64,8 +58,8 @@ export async function sendPasswordResetEmail({ email, fullName, resetLink }) {
 }
 
 export async function sendWelcomeEmail({ fullName, email }) {
-  if (!smtpConfigured()) {
-    console.warn('[mailer] Welcome email skipped — SMTP not configured');
+  if (!resendConfigured()) {
+    console.warn('[mailer] Welcome email skipped — Resend not configured');
     return;
   }
 
@@ -121,9 +115,9 @@ export async function sendWelcomeEmail({ fullName, email }) {
     '<p>Sent to ' + esc(email) + ' because you registered on the Athena Marine Quote Desk.</p></div>' +
     '</div></body></html>';
 
-  const transporter = createTransporter();
-  await transporter.sendMail({
-    from: `"Athena Marine" <${process.env.SMTP_USER}>`,
+  const resend = getClient();
+  await resend.emails.send({
+    from: FROM_ADDRESS,
     to: email,
     subject: 'Welcome to the Athena Marine Quote Desk',
     html,
