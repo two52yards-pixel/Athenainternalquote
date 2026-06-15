@@ -100,7 +100,10 @@ router.post('/signup', async (req, res) => {
     const client = await createClient({ fullName, email, passwordHash, companyName });
     (async () => {
       try {
-        const appUrl = process.env.APP_URL || 'https://athenainternalquote.onrender.com';
+        if (!process.env.SMTP_HOST || !process.env.SMTP_USER || !process.env.SMTP_PASS) {
+          console.warn('[auth] Welcome email skipped — SMTP env vars not configured (SMTP_HOST, SMTP_USER, SMTP_PASS)');
+          return;
+        }
         const loginUrl = appUrl + '/login.html';
         const year = new Date().getFullYear();
         function esc(v) { return String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -163,8 +166,9 @@ router.post('/signup', async (req, res) => {
           html,
           text: 'Dear ' + client.fullName + ',\n\nWelcome to the Athena Marine Quote Desk.\n\nYour account is now active. Access the platform: ' + loginUrl + '\n\nKind regards,\nThe Athena Marine Team'
         });
+        console.log('[auth] Welcome email sent to:', client.email);
       } catch (mailErr) {
-        console.warn('[auth] Welcome email failed:', mailErr.message);
+        console.error('[auth] Welcome email FAILED:', mailErr.message, mailErr.code || '');
       }
     })();
     // Fire-and-forget — never block the response on email
