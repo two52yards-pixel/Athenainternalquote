@@ -715,32 +715,13 @@ function getTotalSuppliedText(item) {
     return '';
   }
 
-  if (item.deliveredUnitType && Number.isFinite(Number(item.deliveredQuantity))) {
-    return formatQuantityForUnit(Number(item.deliveredQuantity), item.deliveredUnitType);
+  const qty = Number(item.supplyQuantity || 0);
+  if (qty <= 0) {
+    return '';
   }
 
-  const supplierQuantity = Number(item.supplyQuantity || 0);
-  const supplierUnit = String(item.unit || '').trim();
-  const quantityMatch = supplierUnit.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units)/i);
-  const ofMatch = supplierUnit.match(/(tray|trays|box|boxes|carton|cartons|case|cases|pack|packs|packet|packets)\s*(?:of)?\s*(\d+(?:\.\d+)?)(?:\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units))?/i);
-
-  if (supplierQuantity > 0 && quantityMatch) {
-    const perUnit = Number(quantityMatch[1]);
-    const unitType = normalizeUnitType(quantityMatch[2]);
-    if (Number.isFinite(perUnit) && unitType) {
-      return formatQuantityForUnit(supplierQuantity * perUnit, unitType);
-    }
-  }
-
-  if (supplierQuantity > 0 && ofMatch) {
-    const perUnit = Number(ofMatch[2]);
-    const unitType = normalizeUnitType(ofMatch[3] || 'pcs');
-    if (Number.isFinite(perUnit) && unitType) {
-      return formatQuantityForUnit(supplierQuantity * perUnit, unitType);
-    }
-  }
-
-  return '';
+  const unit = String(item.supplierUnit || item.unit || '').trim();
+  return unit ? `${qty} ${unit}` : String(qty);
 }
 
 function setButtonLoading(button, isLoading) {
