@@ -97,7 +97,9 @@ export function analyzeBudgetQuote(quote = {}) {
     differenceAmount,
     budgetPercent,
     status,
+    // Aliases expected by app.js
     tone: status.tone,
+    inputDisplay: formatWholeCurrency(budgetValue, budgetCurrency),
     budgetStatusDisplay: status.label,
     budgetAdvice: status.detail,
     budgetLabel: `${formatWholeCurrency(budgetValue, budgetCurrency)} (${budgetCurrency})`,

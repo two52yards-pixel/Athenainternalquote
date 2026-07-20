@@ -98,30 +98,11 @@ function normalizeUnitType(value) {
     return 'pcs';
   }
 
-  if (/(^|\s)(pack|packs|packet|packets|pkt|pkts|carton|cartons|case|cases|box|boxes|tray|trays|bag|bags|bottle|bottles|roll|rolls|tin|tins|jar|jars|bunch|bunches|bch|bchs)(\s|$)/.test(normalized)) {
+  if (/(^|\s)(pack|packs|packet|packets|pkt|pkts|carton|cartons|case|cases|box|boxes|tray|trays|bag|bags|bottle|bottles|roll|rolls|tin|tins|jar|jars)(\s|$)/.test(normalized)) {
     return 'pack';
   }
 
   return '';
-}
-
-function formatSupplierUnitLabel(value) {
-  const normalizedType = normalizeUnitType(value);
-  if (normalizedType === 'kg') {
-    return 'KG';
-  }
-  if (normalizedType === 'liter') {
-    return 'LTR';
-  }
-  if (normalizedType === 'pcs') {
-    return 'PCS';
-  }
-  if (normalizedType === 'pack') {
-    return 'PACK';
-  }
-
-  const text = String(value || '').replace(/[^a-zA-Z\s]/g, ' ').replace(/\s+/g, ' ').trim();
-  return text ? text.toUpperCase().split(' ')[0] : '';
 }
 
 function toBaseQuantity(quantity, rawUnit) {
@@ -631,26 +612,25 @@ function updateSummary(quote) {
   const budgetAnalysis = analyzeBudgetQuote(quote);
   const budgetExists = Boolean(budgetAnalysis);
 
+  // Budget editor is always visible when a quote is open — lets client add/edit at any time
   if (budgetEditorPanel) {
     budgetEditorPanel.classList.remove('hidden');
   }
 
+  // Always keep inputs in sync with current quote state
+  if (summaryBudgetInput) {
+    summaryBudgetInput.value = quote.budget ? String(Math.round(Number(quote.budget))) : '';
+  }
+  if (summaryBudgetCurrency) {
+    summaryBudgetCurrency.value = (quote.budgetCurrency || 'GBP').toUpperCase();
+  }
+
+  // Analysis cards and USD line only appear when a valid budget has been entered
   if (budgetAnalysisGrid) {
     budgetAnalysisGrid.classList.toggle('hidden', !budgetExists);
   }
-
   if (summaryTotalUsd) {
     summaryTotalUsd.classList.toggle('hidden', !budgetExists);
-  }
-
-  if (summaryBudgetInput) {
-    summaryBudgetInput.value = budgetExists
-      ? String(Math.round(Number(quote.budget || 0)) || '')
-      : (quote.budget ? String(Math.round(Number(quote.budget))) : '');
-  }
-
-  if (summaryBudgetCurrency) {
-    summaryBudgetCurrency.value = (quote.budgetCurrency || 'GBP').toUpperCase();
   }
 
   if (!budgetExists) {
@@ -727,44 +707,40 @@ function getSupplierQuantity(item) {
 }
 
 function getSupplierUnit(item) {
-  return String(item.supplierUnit || '').trim();
-}
-
-function deriveSupplierUnitLabel(value) {
-  const text = String(value ?? '').trim();
-  if (!text) {
-    return '';
-  }
-
-  const match = text.match(/\b(box|bag|carton|case|tray|pack|packet|bottle|roll|tin|jar|bunch|kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|piece|pieces|ea|each|unit|units)\b/i);
-  if (match) {
-    return match[1];
-  }
-
-  const firstToken = text.replace(/[^a-z0-9\/\s]/gi, ' ').replace(/\s+/g, ' ').trim().split(' ')[0];
-  return firstToken || '';
-}
-
-function resolveSupplierUnit(item, product = null) {
-  return String(
-    product?.supplierUnit
-    || item?.supplierUnit
-    || deriveSupplierUnitLabel(product?.unit)
-    || deriveSupplierUnitLabel(item?.unit)
-    || ''
-  ).trim();
+  return String(item.supplierUnit || item.unit || '').trim();
 }
 
 function getTotalSuppliedText(item) {
   if (isItemUnavailable(item)) {
     return '';
   }
-  const supplierQuantity = Number(item.supplyQuantity || 0);
-  const supplierUnit = getSupplierUnit(item);
-  if (!supplierQuantity) {
-    return '';
+
+  if (item.deliveredUnitType && Number.isFinite(Number(item.deliveredQuantity))) {
+    return formatQuantityForUnit(Number(item.deliveredQuantity), item.deliveredUnitType);
   }
-  return supplierUnit ? `${formatValue(supplierQuantity)} ${supplierUnit}` : formatValue(supplierQuantity);
+
+  const supplierQuantity = Number(item.supplyQuantity || 0);
+  const supplierUnit = String(item.unit || '').trim();
+  const quantityMatch = supplierUnit.match(/(\d+(?:\.\d+)?)\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units)/i);
+  const ofMatch = supplierUnit.match(/(tray|trays|box|boxes|carton|cartons|case|cases|pack|packs|packet|packets)\s*(?:of)?\s*(\d+(?:\.\d+)?)(?:\s*(kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|pieces|piece|ea|each|unit|units))?/i);
+
+  if (supplierQuantity > 0 && quantityMatch) {
+    const perUnit = Number(quantityMatch[1]);
+    const unitType = normalizeUnitType(quantityMatch[2]);
+    if (Number.isFinite(perUnit) && unitType) {
+      return formatQuantityForUnit(supplierQuantity * perUnit, unitType);
+    }
+  }
+
+  if (supplierQuantity > 0 && ofMatch) {
+    const perUnit = Number(ofMatch[2]);
+    const unitType = normalizeUnitType(ofMatch[3] || 'pcs');
+    if (Number.isFinite(perUnit) && unitType) {
+      return formatQuantityForUnit(supplierQuantity * perUnit, unitType);
+    }
+  }
+
+  return '';
 }
 
 function setButtonLoading(button, isLoading) {
@@ -824,6 +800,10 @@ function closeCurrentQuoteView() {
   resultsTableBody.innerHTML = '';
   summaryPanel.classList.add('hidden');
   resultsPanel.classList.add('hidden');
+  // Hide budget editor when no quote is open
+  if (budgetEditorPanel) budgetEditorPanel.classList.add('hidden');
+  if (budgetAnalysisGrid) budgetAnalysisGrid.classList.add('hidden');
+  if (summaryTotalUsd) summaryTotalUsd.classList.add('hidden');
 
   // Disable export buttons when no quote is open
   downloadExcelButton.disabled = true;
@@ -831,34 +811,6 @@ function closeCurrentQuoteView() {
 
   localStorage.removeItem(LAST_OPEN_QUOTE_STORAGE_KEY);
   setStatus('Current quote view closed.');
-}
-
-function updateTopSpendIndicators() {
-  if (!state.currentQuote?.items?.length) {
-    return;
-  }
-
-  const topLineItems = new Map(getTopLineTotalItems(state.currentQuote.items, 3).map((item) => [item.lineNumber, item.rank]));
-
-  for (const row of resultsTableBody.querySelectorAll('tr[data-index]')) {
-    const index = Number(row.dataset.index);
-    const item = state.currentQuote.items[index];
-
-    if (!item) {
-      continue;
-    }
-
-    const topSpendRank = topLineItems.get(item.lineNumber);
-    const itemCell = row.querySelector('.item-cell');
-    const highlightMarkup = topSpendRank
-      ? `<span class="top-spend-pill">💡 Review Quantity</span>`
-      : '';
-
-    row.classList.toggle('top-spend-row', Boolean(topSpendRank));
-    if (itemCell) {
-      itemCell.innerHTML = `${escapeHtml(item.originalItem)}${highlightMarkup}`;
-    }
-  }
 }
 
 function renderQuote(quote) {
@@ -875,17 +827,20 @@ function renderQuote(quote) {
     state.currentQuote.budget = null;
   }
 
+  const topLineItems = new Map(getTopLineTotalItems(state.currentQuote.items, 3).map((item) => [item.lineNumber, item.rank]));
+
+  // Always refresh supplierUnit from the live catalog so column C changes
+  // are reflected immediately without re-processing the quote.
   state.currentQuote.items.forEach((item) => {
-    const product = state.products.find((candidate) => (candidate.catalogKey || candidate.productName) === (item.matchedProductKey || item.matchedProduct))
-      || state.products.find((candidate) => candidate.productName === item.matchedProduct);
-
-    item.supplierUnit = resolveSupplierUnit(item, product || null);
-
-    if (product) {
-      item.matchedProduct = String(product.productName || item.matchedProduct || '').trim();
-      item.matchedProductDisplay = String(product.productName || item.matchedProductDisplay || '').trim();
+    const catalogProduct = state.products.find(
+      (p) => (p.catalogKey || p.productName) === (item.matchedProductKey || item.matchedProduct)
+    );
+    if (catalogProduct && catalogProduct.supplierUnit) {
+      item.supplierUnit = String(catalogProduct.supplierUnit).trim();
     }
+  });
 
+  state.currentQuote.items.forEach((item) => {
     if (typeof item.available !== 'boolean') {
       item.available = !(item.isUnavailable || item.status === 'UNAVAILABLE');
     }
@@ -911,11 +866,15 @@ function renderQuote(quote) {
     const toggleConfig = getUnavailableToggleConfig(item);
     const isUnavailable = toggleConfig.isUnavailable;
     const disabledAttribute = isUnavailable ? 'disabled' : '';
+    const topSpendRank = topLineItems.get(item.lineNumber);
+    const highlightMarkup = topSpendRank
+      ? `<span class="top-spend-pill">💡 Review Quantity</span>`
+      : '';
 
     return `
-      <tr data-index="${index}" class="${isUnavailable ? 'row-unavailable' : ''}">
+      <tr data-index="${index}" class="${isUnavailable ? 'row-unavailable' : ''} ${topSpendRank ? 'top-spend-row' : ''}">
         <td class="line-cell">${item.lineNumber}</td>
-        <td class="item-cell">${escapeHtml(item.originalItem)}</td>
+        <td class="item-cell">${escapeHtml(item.originalItem)}${highlightMarkup}</td>
         <td class="product-cell">
           ${renderMatchedProductDropdown(item.matchedProductKey || item.matchedProduct, isUnavailable)}
         </td>
@@ -935,7 +894,6 @@ function renderQuote(quote) {
     `;
   }).join('');
 
-  updateTopSpendIndicators();
   updateQuoteActions(quote);
 }
 
@@ -973,7 +931,7 @@ function refreshRow(row, changedField = '') {
   if (matchedProduct) {
     item.price = Number(matchedProduct.price) || 0;
     item.unit = normalizeSupplyLabel(selectedOption?.option?.label || matchedProduct.unit || '');
-    item.supplierUnit = resolveSupplierUnit(item, matchedProduct);
+    item.supplierUnit = String(matchedProduct.supplierUnit || '').trim();
     if (priceDisplay) priceDisplay.textContent = item.price.toFixed(2);
     item.matchedProductKey = matchedProduct.catalogKey || matchedProduct.productName;
     item.matchedProduct = matchedProduct.productName;
@@ -985,12 +943,12 @@ function refreshRow(row, changedField = '') {
     item.matchedProductKey = '';
     item.matchedProduct = '';
     item.matchedProductDisplay = '';
+    item.supplierUnit = '';
     item.sourceRowNumber = null;
     item.unitKgEquivalent = null;
     item.forceKgConversion = false;
     item.price = 0;
     item.unit = '';
-    item.supplierUnit = resolveSupplierUnit(item, null);
     if (priceDisplay) priceDisplay.textContent = '0.00';
   }
 
@@ -1083,7 +1041,6 @@ function refreshRow(row, changedField = '') {
 
   summarizeCurrentQuote();
   updateSummary(state.currentQuote);
-  updateTopSpendIndicators();
 }
 
 async function loadHistory() {
@@ -1110,11 +1067,8 @@ function syncBudgetFromSummaryInputs() {
 
   const budgetValue = sanitizeBudgetValue(summaryBudgetInput?.value || '');
   const nextBudget = budgetValue === '' ? null : Number(budgetValue);
-
-  state.currentQuote.budget = Number.isFinite(nextBudget) && nextBudget > 0
-    ? nextBudget
-    : null;
-  state.currentQuote.budgetCurrency = summaryBudgetCurrency?.value || state.currentQuote.budgetCurrency || 'GBP';
+  state.currentQuote.budget = Number.isFinite(nextBudget) && nextBudget > 0 ? nextBudget : null;
+  state.currentQuote.budgetCurrency = summaryBudgetCurrency?.value || 'GBP';
   summarizeCurrentQuote();
   updateSummary(state.currentQuote);
 }
