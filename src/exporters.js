@@ -301,7 +301,7 @@ function writeItemsToWorksheet(worksheet, items, itemStartRow, itemEndRow) {
     worksheet.getCell(`B${rowNumber}`).value = item.originalItem || '';
     worksheet.getCell(`C${rowNumber}`).value = buildSpecificationText(item);
     worksheet.getCell(`D${rowNumber}`).value = Number(item.supplyQuantity ?? 0) || 0;
-    worksheet.getCell(`E${rowNumber}`).value = getUnitType(item.unit);
+    worksheet.getCell(`E${rowNumber}`).value = String(item.supplierUnit || '').trim() || getUnitType(item.unit);
     worksheet.getCell(`F${rowNumber}`).value = Number(item.price || 0);
   }
 }
@@ -582,7 +582,7 @@ export async function buildExcelBuffer(quote) {
     worksheet.getCell(`B${rowNumber}`).value = item.originalItem || '';
     worksheet.getCell(`C${rowNumber}`).value = buildSpecificationText(item);
     worksheet.getCell(`D${rowNumber}`).value = supplyQuantity;
-    worksheet.getCell(`E${rowNumber}`).value = getUnitType(item.unit);
+    worksheet.getCell(`E${rowNumber}`).value = String(item.supplierUnit || '').trim() || getUnitType(item.unit);
     worksheet.getCell(`F${rowNumber}`).value = linePrice;
 
     ensureItemTotalMerge(worksheet, rowNumber);
@@ -685,7 +685,7 @@ function getTableRowValues(item, rowNumber) {
     item.originalItem || '',
     rowStatusText(item),
     formatQuantity(item.supplyQuantity),
-    item.unit || '',
+    String(item.supplierUnit || item.unit || '').trim(),
     formatCurrency(item.price),
     formatCurrency(item.total)
   ];
