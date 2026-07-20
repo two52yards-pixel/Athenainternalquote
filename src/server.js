@@ -76,9 +76,9 @@ await fs.mkdir(uploadsDirectory, { recursive: true });
 // =====================
 async function resolvePriceListPath() {
   const fallbackPaths = [
-    path.join(projectRoot, 'data', 'ATH PRODUCT LIST - MAIN.xlsx'),
     process.env.PRICE_LIST_FILE ? path.resolve(projectRoot, process.env.PRICE_LIST_FILE) : '',
-    path.join(projectRoot, 'data', 'ATH PRICE LIST - MAIN.xlsx')
+    path.join(projectRoot, 'data', 'ATH PRICE LIST - MAIN.xlsx'),
+    path.join(projectRoot, 'data', 'ATH PRODUCT LIST - MAIN.xlsx')
   ];
 
   for (const candidate of fallbackPaths) {
