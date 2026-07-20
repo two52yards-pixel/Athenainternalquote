@@ -17,7 +17,8 @@ import { buildExcelBuffer, buildPdfBuffer } from './exporters.js';
 import { loadPriceList, parseRequisitionFile } from './parser.js';
 import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
-import { listQuotes, loadQuote, saveQuote, listAllQuotes, restoreAllQuotesFromR2 } from './quoteStore.js';
+import { listQuotes, loadQuote, saveQuote, listAllQuotes, restoreAllQuotesFromR2, deleteQuote } from './quoteStore.js';
+import { loadMatchingPolicy, saveMatchingPolicy } from './matchingPolicyStore.js';
 
 // =====================
 // PATH SETUP
@@ -77,11 +78,61 @@ const priceListPath = process.env.PRICE_LIST_FILE || path.join(projectRoot, 'dat
 const rawPriceList = await loadPriceList(priceListPath);
 
 const catalog = prepareCatalog(rawPriceList);
-const matcher = createMatchingEngine(catalog, [], {
-  fuzzyThreshold: Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7)
-});
+let matchingPolicy = await loadMatchingPolicy();
+
+function createMatcherFromPolicy() {
+  return createMatchingEngine(catalog, [], {
+    fuzzyThreshold: Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7),
+    minAutoMatchConfidence: matchingPolicy.minAutoMatchConfidence,
+    enableBusinessRules: matchingPolicy.enableBusinessRules
+  });
+}
+
+let matcher = createMatcherFromPolicy();
 
 let quoteInsights = await loadQuoteInsights(catalog);
+
+const catalogByKey = new Map();
+const catalogByName = new Map();
+for (const product of catalog) {
+  const key = String(product.catalogKey || '').trim();
+  const name = String(product.productName || '').trim();
+  if (key) {
+    catalogByKey.set(key, product);
+  }
+  if (name) {
+    catalogByName.set(name, product);
+  }
+}
+
+function resolveCatalogProduct(item = {}) {
+  const matchedKey = String(item.matchedProductKey || '').trim();
+  if (matchedKey && catalogByKey.has(matchedKey)) {
+    return catalogByKey.get(matchedKey);
+  }
+
+  const matchedName = String(item.matchedProduct || item.matchedProductDisplay || '').trim();
+  if (matchedName && catalogByName.has(matchedName)) {
+    return catalogByName.get(matchedName);
+  }
+
+  return null;
+}
+
+function hydrateQuoteItems(items = []) {
+  return items.map((item) => {
+    const product = resolveCatalogProduct(item);
+    const supplierUnit = String(product?.supplierUnit || item?.supplierUnit || '').trim();
+    const matchedProductName = String(product?.productName || item?.matchedProduct || '').trim();
+
+    return {
+      ...item,
+      supplierUnit,
+      matchedProduct: matchedProductName,
+      matchedProductDisplay: matchedProductName
+    };
+  });
+}
 
 function getQuoteScopeKey(req) {
   // Use the authenticated client's ID as the scope key.
@@ -92,7 +143,15 @@ function getQuoteScopeKey(req) {
 // =====================
 // HELPERS
 // =====================
+function parseWholeBudgetValue(value) {
+  const raw = String(value ?? '');
+  const integerPart = raw.split(/[.,]/)[0].replace(/[^\d]/g, '');
+  const parsed = Number(integerPart);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 function buildResponse(quote) {
+  const hydratedItems = hydrateQuoteItems(Array.isArray(quote.items) ? quote.items : []);
   return {
     id: quote.id,
     quoteNumber: quote.quoteNumber,
@@ -105,7 +164,9 @@ function buildResponse(quote) {
     scheduledArrival: quote.scheduledArrival,
     contactEmail: quote.contactEmail,
     agentName: quote.agentName,
-    items: quote.items,
+    budget: quote.budget ?? null,
+    budgetCurrency: quote.budgetCurrency || 'GBP',
+    items: hydratedItems,
     summary: quote.summary,
     quoteStatus: quote.quoteStatus,
     createdAt: quote.createdAt,
@@ -161,9 +222,13 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
       matcher.matchItem ? matcher.matchItem(item) : item
     );
 
-    const summary = summarizeQuote(matchedItems);
+    const hydratedItems = hydrateQuoteItems(matchedItems);
+    const summary = summarizeQuote(hydratedItems);
 
     // Save draft locally only — no R2 upload at this stage
+    const budgetValue = parseWholeBudgetValue(req.body.budget);
+    const hasBudget = budgetValue !== null;
+
     const quote = await saveQuote({
       scopeKey: getQuoteScopeKey(req),
       clientName: req.body.clientName || '',
@@ -173,8 +238,10 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
       scheduledArrival: req.body.scheduledArrival || '',
       contactEmail: req.body.contactEmail || '',
       agentName: req.body.agentName || '',
+      budget: hasBudget ? budgetValue : null,
+      budgetCurrency: hasBudget ? (req.body.budgetCurrency || 'GBP').toUpperCase() : 'GBP',
       originalFileName: req.file.originalname,
-      items: matchedItems,
+      items: hydratedItems,
       summary
     });
 
@@ -193,12 +260,18 @@ app.put('/api/quotes/:id', async (req, res, next) => {
     const scopeKey = getQuoteScopeKey(req);
     const existing = await loadQuote(req.params.id, scopeKey);
     const incomingItems = Array.isArray(req.body.items) ? req.body.items : existing.items;
-    const summary = summarizeQuote(incomingItems);
+    const hydratedItems = hydrateQuoteItems(incomingItems);
+    const summary = summarizeQuote(hydratedItems);
+
+    const incomingBudget = parseWholeBudgetValue(req.body.budget ?? existing.budget ?? '');
+    const hasBudget = incomingBudget !== null;
 
     const updated = await saveQuote({
       ...existing,
       scopeKey,
-      items: incomingItems,
+      items: hydratedItems,
+      budget: hasBudget ? incomingBudget : null,
+      budgetCurrency: hasBudget ? (req.body.budgetCurrency || existing.budgetCurrency || 'GBP').toUpperCase() : 'GBP',
       summary
     });
 
@@ -216,14 +289,18 @@ app.put('/api/quotes/:id', async (req, res, next) => {
 app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
   try {
     const quote = await loadQuote(req.params.id, getQuoteScopeKey(req));
+    const hydratedQuote = {
+      ...quote,
+      items: hydrateQuoteItems(Array.isArray(quote.items) ? quote.items : [])
+    };
 
     // Generate a single buffer — this is the canonical final version
-    const buffer = Buffer.from(await buildExcelBuffer(quote));
+    const buffer = Buffer.from(await buildExcelBuffer(hydratedQuote));
 
     // Upload the exact same bytes to R2
-    if (quote.quoteNumber) {
+    if (hydratedQuote.quoteNumber) {
       await uploadToR2(
-        `${quote.quoteNumber}.xlsx`,
+        `${hydratedQuote.quoteNumber}.xlsx`,
         buffer,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       );
@@ -235,7 +312,7 @@ app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
     );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${quote.quoteNumber || quote.id}.xlsx"`
+      `attachment; filename="${hydratedQuote.quoteNumber || hydratedQuote.id}.xlsx"`
     );
 
     // Send the same buffer to the client
@@ -251,14 +328,18 @@ app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
 app.get('/api/quotes/:id/export.pdf', async (req, res, next) => {
   try {
     const quote = await loadQuote(req.params.id, getQuoteScopeKey(req));
+    const hydratedQuote = {
+      ...quote,
+      items: hydrateQuoteItems(Array.isArray(quote.items) ? quote.items : [])
+    };
 
     // Generate a single buffer — this is the canonical final version
-    const buffer = await buildPdfBuffer(quote);
+    const buffer = await buildPdfBuffer(hydratedQuote);
 
     // Upload the exact same bytes to R2
-    if (quote.quoteNumber) {
+    if (hydratedQuote.quoteNumber) {
       await uploadToR2(
-        `${quote.quoteNumber}.pdf`,
+        `${hydratedQuote.quoteNumber}.pdf`,
         buffer,
         'application/pdf'
       );
@@ -267,7 +348,7 @@ app.get('/api/quotes/:id/export.pdf', async (req, res, next) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${quote.quoteNumber || quote.id}.pdf"`
+      `attachment; filename="${hydratedQuote.quoteNumber || hydratedQuote.id}.pdf"`
     );
 
     // Send the same buffer to the client
@@ -387,6 +468,16 @@ app.get('/api/admin/quotes/:clientId/:id/export.pdf', requireAuth, requireAdmin,
   } catch (err) { next(err); }
 });
 
+// ADMIN DELETE QUOTE — enables orphaned quote cleanup from admin panel.
+app.delete('/api/admin/quotes/:clientId/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    await deleteQuote(req.params.clientId, req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // =====================
 // ERROR HANDLER
 // =====================
@@ -411,4 +502,29 @@ app.listen(port, async () => {
   await restoreAllQuotesFromR2().catch(err => console.error('[quotes] R2 restore error:', err.message));
   // Seed admin account on first boot — safe no-op on subsequent starts
   await seedAdminIfNeeded().catch(err => console.error('[auth] Admin seed error:', err.message));
+});
+
+// ADMIN — MATCHING POLICY (admin-only controls, never exposed to client panel)
+app.get('/api/admin/matching-policy', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    res.json({ policy: matchingPolicy });
+  } catch (err) {
+    next(err);
+  }
+});
+
+app.put('/api/admin/matching-policy', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    const nextPolicy = {
+      enableBusinessRules: req.body?.enableBusinessRules,
+      minAutoMatchConfidence: req.body?.minAutoMatchConfidence
+    };
+
+    matchingPolicy = await saveMatchingPolicy(nextPolicy);
+    matcher = createMatcherFromPolicy();
+
+    res.json({ ok: true, policy: matchingPolicy });
+  } catch (err) {
+    next(err);
+  }
 });

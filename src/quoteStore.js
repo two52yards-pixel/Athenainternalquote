@@ -418,3 +418,36 @@ export async function listAllQuotes() {
 
   return all.sort((a, b) => new Date(b.updatedAt) - new Date(a.updatedAt));
 }
+
+export async function deleteQuote(scopeKey, quoteId) {
+  const rawScopeKey = String(scopeKey || '').trim();
+  const safeScopeKey = sanitizeScopeKey(rawScopeKey);
+  const candidatePaths = [
+    path.join(quotesRootDirectory, rawScopeKey, `${quoteId}.json`),
+    getQuotePath(safeScopeKey, quoteId)
+  ];
+
+  let lastError = null;
+
+  for (const quotePath of candidatePaths) {
+    if (!quotePath) {
+      continue;
+    }
+
+    try {
+      await fs.unlink(quotePath);
+      return { ok: true };
+    } catch (error) {
+      lastError = error;
+      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
+        throw error;
+      }
+    }
+  }
+
+  if (lastError && typeof lastError === 'object' && lastError.code === 'ENOENT') {
+    throw createNotFoundError('Quote not found. It may have already been removed.');
+  }
+
+  return { ok: true };
+}

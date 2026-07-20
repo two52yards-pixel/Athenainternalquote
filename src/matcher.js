@@ -24,6 +24,10 @@ function normalizeText(value) {
     .replace(/\b(?:bok|bak|pak)\s*[- ]?cho(?:i|y)\b/g, ' pak choi ')
     .replace(/\bch(?:i|ic)nese\s*cabbages?\b/g, ' chinese leaf ')
     .replace(/\bch(?:i|ic)nese\s*leaves\b/g, ' chinese leaf ')
+    .replace(/\bcheery\b/g, ' cherry ')
+    .replace(/\bchery\b/g, ' cherry ')
+    .replace(/\btomatos\b/g, ' tomato ')
+    .replace(/\bcherry\s+tomatoes?\b/g, ' cherry tomato ')
     .replace(/\bfillets\b/g, ' fillet ')
     .replace(/\bsides\b/g, ' side ')
     .replace(/\bsacks\b/g, ' bag ')
@@ -301,6 +305,28 @@ function buildMatchContext(item, freshProduceTokens) {
   };
 }
 
+function getAnchorTokens(tokens) {
+  return tokens.filter((token) => (
+    token.length > 2
+    && !LOW_SIGNAL_TOKENS.has(token)
+    && !QUALIFIER_TOKENS.has(token)
+  ));
+}
+
+function hasAnchorCompatibility(context, product) {
+  const requestAnchors = getAnchorTokens(context.matchTokens);
+  if (!requestAnchors.length) {
+    return true;
+  }
+
+  const candidateTokens = new Set([
+    ...(Array.isArray(product.nameTokens) ? product.nameTokens : []),
+    ...(Array.isArray(product.matchTokens) ? product.matchTokens : [])
+  ]);
+
+  return requestAnchors.some((token) => candidateTokens.has(token));
+}
+
 function findBakerySemanticMatch(context, products) {
   if (!context.bakeryIntent) {
     return null;
@@ -397,6 +423,161 @@ function findClosestProductTypeFallback(context, products) {
 
   if (context.produceIntentCategory) {
     return findProduceCategoryFallbackMatch(context, products);
+  }
+
+  return null;
+}
+
+function findProductByRule(products, includePatterns = [], excludePatterns = [], preferredPatterns = []) {
+  const rows = products.map((product) => ({
+    product,
+    normalizedName: normalizeText(product.productName || '')
+  }));
+
+  const candidates = rows.filter(({ normalizedName }) => (
+    includePatterns.every((pattern) => pattern.test(normalizedName))
+      && excludePatterns.every((pattern) => !pattern.test(normalizedName))
+  ));
+
+  if (!candidates.length) {
+    return null;
+  }
+
+  if (preferredPatterns.length) {
+    const preferred = candidates.find(({ normalizedName }) => preferredPatterns.every((pattern) => pattern.test(normalizedName)));
+    if (preferred) {
+      return preferred.product;
+    }
+  }
+
+  return candidates[0].product;
+}
+
+function tryBusinessRuleMatch(context, products) {
+  const normalizedRequest = normalizeText(context?.originalItem || '');
+  const rawRequest = String(context?.originalItem || '').toLowerCase();
+  const customerUnitType = context?.request?.customerUnitType || '';
+
+  const hasToken = (pattern) => pattern.test(normalizedRequest);
+
+  // Tomatoes (half ripe and similar) -> tomatoes 6kg
+  const hasHalfRipeTomatoPhrase = /tomato(?:es)?\s*\(?\s*half\s*ripe\s*\)?|half\s*ripe\s*tomato(?:es)?/i.test(rawRequest);
+  if (hasToken(/\btomato(?:es)?\b/) && (hasToken(/\bhalf\b/) || hasToken(/\bripe\b/) || hasHalfRipeTomatoPhrase)) {
+    const product = findProductByRule(products, [/\btomato(?:es)?\b/], [/\bpaste\b|\bcanned\b|\btin\b|\bcocktail\b/], [/\b6\s*kg\b|\b6kg\b/]);
+    if (product) {
+      return { product, score: 1, confidence: 'high', reason: 'business rule: half ripe tomato -> tomato 6kg' };
+    }
+  }
+
+  // Canned soft drinks
+  if (hasToken(/\b(can|canned|cans)\b/)) {
+    if (hasToken(/\b(coke|coca\s*cola)\b/)) {
+      const product = findProductByRule(products, [/\bcoca\b/, /\bcola\b/, /\b(can|cans)\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: canned coke -> coca cola cans' };
+    }
+    if (hasToken(/\bfanta\b/)) {
+      const product = findProductByRule(products, [/\bfanta\b/, /\b(can|cans)\b/], [], [/\borange\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: canned fanta -> fanta orange cans' };
+    }
+    if (hasToken(/\bsprite\b/)) {
+      const product = findProductByRule(products, [/\bsprite\b/, /\b(can|cans)\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: canned sprite -> sprite cans' };
+    }
+  }
+
+  // Bottled soft drinks
+  if (hasToken(/\b(btl|bottle|bottles)\b/)) {
+    if (hasToken(/\b(coke|coca\s*cola)\b/)) {
+      const product = findProductByRule(products, [/\bcoca\b|\bcoke\b/, /\b(btl|bottle|bottles)\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: coke bottle -> coca cola btl' };
+    }
+    if (hasToken(/\bfanta\b/)) {
+      const product = findProductByRule(products, [/\bfanta\b/, /\b(btl|bottle|bottles)\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: fanta bottle -> fanta btl' };
+    }
+    if (hasToken(/\bsprite\b/)) {
+      const product = findProductByRule(products, [/\bsprite\b/, /\b(btl|bottle|bottles)\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: sprite bottle -> sprite btl' };
+    }
+  }
+
+  // Garlic priority
+  if (hasToken(/\bgarlic\b/)) {
+    if (hasToken(/\bpowder\b/)) {
+      const product = findProductByRule(products, [/\bgarlic\b/, /\bpowder\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: garlic powder' };
+    }
+
+    const product = findProductByRule(products, [/\bgarlic\b/], [/\bpowder\b/], [/\b50\s*x\s*bulb\b|\b50xbulb\b/]);
+    if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: garlic default -> 50xbulb' };
+  }
+
+  // Watermelon and melon routing
+  if (hasToken(/\bwater\s*melon\b|\bwatermelon\b/)) {
+    const product = findProductByRule(products, [/\bwater\s*melon\b|\bwatermelon\b/]);
+    if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: watermelon' };
+  }
+
+  if (hasToken(/\bmelon\b/) && !hasToken(/\bwater\s*melon\b|\bwatermelon\b/)) {
+    if (hasToken(/\bhoney\b|\bdew\b|\bhoney\s*dew\b|\bhoneydew\b|\bsweet\b/) || /^\s*melon\s*$/i.test(normalizedRequest)) {
+      const product = findProductByRule(products, [/\bmelon\b/], [/\bwater\s*melon\b|\bwatermelon\b/], [/\bhoney\s*dew\b|\bhoneydew\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: melon default -> honey dew melon' };
+    }
+  }
+
+  // Pineapple
+  if (hasToken(/\bpine\s*apple\b|\bpineapple\b/)) {
+    const product = findProductByRule(products, [/\bpine\s*apple\b|\bpineapple\b/], [], [/\b8\s*x\s*box\b|\b8xbox\b/]);
+    if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: pineapple -> 8xbox' };
+  }
+
+  // Pears -> avoid canned halves
+  if (hasToken(/\bpear\b|\bpears\b/)) {
+    const product = findProductByRule(
+      products,
+      [/\bpeas\b|\bpear\b/],
+      [/\bhalves\b|\bhalf\b|\bcanned\b|\bcocktail\b/],
+      [/\bpeas\s*green\b|\bgreen\s*peas\b|\bgreen\b/]
+    );
+    if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: pears -> fresh green pears' };
+  }
+
+  // Strawberries default to 135g unless specifically requested
+  if (hasToken(/\bstrawberry\b|\bstrawberries\b/)) {
+    const hasSpecificPack = hasToken(/\b\d+(?:\.\d+)?\s*(kg|g|gram|grams|box|boxes|tray|trays|pack|packs|pkt|btl|bottle|bottles|pcs|pc)\b/);
+    if (!hasSpecificPack) {
+      const product = products.find((candidate) => {
+        const name = normalizeText(candidate.productName || '');
+        return /\bstrawberry\b/.test(name) && /\b135\s*g\b|\b135g\b/.test(name);
+      });
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: strawberries default' };
+      return null;
+    }
+  }
+
+  // Long-life milk / UHT milk
+  if (hasToken(/\bmilk\b/) && hasToken(/\bll\b|\blong\s*life\b|\buht\b/)) {
+    const product = findProductByRule(products, [/\bmilk\b/, /\buht\b|\blong\s*life\b/]);
+    if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: long-life milk -> uht milk' };
+  }
+
+  // Pomegranate molasses -> pomegranate salad dressing
+  if (hasToken(/\bpomegranate\b/) && hasToken(/\bmolasses\b/)) {
+    const product = findProductByRule(products, [/\bpomegranate\b/, /\bsalad\b/, /\bdressing\b/]);
+    if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: pomegranate molasses -> salad dressing' };
+  }
+
+  // Cream cheese split by request unit
+  if (hasToken(/\bcream\s*cheese\b/)) {
+    if (customerUnitType === 'pcs') {
+      const product = findProductByRule(products, [/\bphiladelphia\b/, /\bcheese\b/], [], [/\b165\s*g\b|\b165g\b/, /\bpcs\b|\bpc\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: cream cheese pcs -> philadelphia 165g pcs' };
+    }
+
+    if (customerUnitType === 'kg') {
+      const product = findProductByRule(products, [/\bsoft\b/, /\bcream\s*cheese\b/], [], [/\b1\.65\s*kg\b|\b1\.65kg\b/]);
+      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: cream cheese kg -> soft cream cheese 1.65kg' };
+    }
   }
 
   return null;
@@ -537,13 +718,20 @@ function findKeywordMatch(context, products) {
       || (candidate.keywordHits === bestMatch.keywordHits && producePreference > bestMatch.producePreference)
       || (candidate.keywordHits === bestMatch.keywordHits && producePreference === bestMatch.producePreference && unitFit > bestMatch.unitFit)
       || (candidate.keywordHits === bestMatch.keywordHits && producePreference === bestMatch.producePreference && unitFit === bestMatch.unitFit && candidate.nameHits > bestMatch.nameHits)) {
+      const hasStrongSingleToken = candidate.keywordHits === 1
+        && candidate.nameHits > 0
+        && candidate.sharedTokens.some((token) => !LOW_SIGNAL_TOKENS.has(token));
+      const confidence = candidate.keywordHits >= 3
+        ? 'high'
+        : (candidate.keywordHits >= 2 || hasStrongSingleToken ? 'medium' : 'low');
+
       bestMatch = {
         product,
         score: candidate.score,
         keywordHits: candidate.keywordHits,
         producePreference,
         unitFit,
-        confidence: candidate.keywordHits >= 3 ? 'high' : candidate.keywordHits >= 2 ? 'medium' : 'low',
+        confidence,
         reason: context.prefersFreshProduce && producePreference > 0
           ? 'keyword score match; preferred fresh produce alternative'
           : 'keyword score match'
@@ -590,14 +778,16 @@ function createFuzzyMatcher(products, fuzzyThreshold, freshProduceTokens) {
     const ranked = results
       .map((result) => {
         const similarity = 1 - Number(result.score ?? 1);
+        const product = products[result.item.productIndex];
         return {
-          product: products[result.item.productIndex],
+          product,
           similarity,
-          unitFit: scoreUnitFit(context.request, products[result.item.productIndex]),
-          producePreference: scoreProducePreference(context, products[result.item.productIndex])
+          unitFit: scoreUnitFit(context.request, product),
+          producePreference: scoreProducePreference(context, product),
+          anchorCompatible: hasAnchorCompatibility(context, product)
         };
       })
-      .filter((result) => result.similarity >= effectiveThreshold)
+      .filter((result) => result.similarity >= effectiveThreshold && result.anchorCompatible)
       .sort((left, right) => {
         if (right.producePreference !== left.producePreference) {
           return right.producePreference - left.producePreference;
@@ -629,11 +819,25 @@ function createFuzzyMatcher(products, fuzzyThreshold, freshProduceTokens) {
 
 
 // Custom yogurt matching logic
-function matchProduct(item, products, fuzzyMatcher, freshProduceTokens) {
+function matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherOptions = {}) {
   const context = buildMatchContext(item, freshProduceTokens);
+  context.originalItem = item.originalItem;
   const itemText = context.cleanedText;
   const requestedQty = context.request.customerQuantity;
   const requestedUnitType = context.request.customerUnitType;
+  const normalizedRequest = normalizeText(item.originalItem || '');
+
+  // Business constraint: strawberries should default to 135g SKU only.
+  // If the catalog does not contain that SKU, do not auto-match to milk/syrup/jam variants.
+  if (/\bstrawberry\b|\bstrawberries\b/.test(normalizedRequest)) {
+    const strawberry135 = products.find((product) => {
+      const name = normalizeText(product.productName || '');
+      return /\bstrawberry\b/.test(name) && /\b135\s*g\b|\b135g\b/.test(name);
+    });
+    if (!strawberry135) {
+      return null;
+    }
+  }
 
   // Special handling for yogurt
   const isYogurtRequest = /yogurt|yoghurt/.test(itemText);
@@ -686,6 +890,13 @@ function matchProduct(item, products, fuzzyMatcher, freshProduceTokens) {
     }
   }
 
+  if (matcherOptions.enableBusinessRules !== false) {
+    const businessRuleMatch = tryBusinessRuleMatch(context, products);
+    if (businessRuleMatch) {
+      return businessRuleMatch;
+    }
+  }
+
   // Fallback to default matching
   const bakerySemanticMatch = findBakerySemanticMatch(context, products);
   if (bakerySemanticMatch) {
@@ -697,30 +908,31 @@ function matchProduct(item, products, fuzzyMatcher, freshProduceTokens) {
     return keywordMatch;
   }
 
-  const categoryFallbackMatch = findProduceCategoryFallbackMatch(context, products);
-  if (categoryFallbackMatch) {
-    return categoryFallbackMatch;
-  }
-
   const fuzzyMatch = fuzzyMatcher ? fuzzyMatcher(item) : null;
   if (fuzzyMatch) {
     return fuzzyMatch;
   }
 
-  const alternativeProduceMatch = findAlternativeFreshProduceMatch(context, products);
-  if (alternativeProduceMatch) {
-    return alternativeProduceMatch;
-  }
-
-  return findClosestProductTypeFallback(context, products);
+  return null;
 }
 
 function buildMatchedQuoteItem(item, product, matchMeta, priceOverride) {
   const quantityResult = convertMatchedQuantity(item, product);
   const effectivePrice = Number.isFinite(priceOverride) ? priceOverride : Number(product.price || 0);
-  const status = quantityResult.reviewFlags.length ? 'REVIEW REQUIRED' : 'MATCHED';
-  const matchReason = quantityResult.reviewFlags.length
-    ? `${matchMeta.reason}; ${quantityResult.reviewFlags.join('; ')}`
+  const isBusinessRuleMatch = String(matchMeta?.reason || '').startsWith('business rule:');
+  const reviewFlags = isBusinessRuleMatch
+    ? quantityResult.reviewFlags.filter((flag) => {
+      const normalizedFlag = String(flag || '').toLowerCase();
+      return !(
+        normalizedFlag.startsWith('unit missing')
+        || normalizedFlag.startsWith('unit mismatch')
+        || normalizedFlag.startsWith('used default supplier unit')
+      );
+    })
+    : quantityResult.reviewFlags;
+  const status = reviewFlags.length ? 'REVIEW REQUIRED' : 'MATCHED';
+  const matchReason = reviewFlags.length
+    ? `${matchMeta.reason}; ${reviewFlags.join('; ')}`
     : matchMeta.reason;
 
   return {
@@ -731,11 +943,12 @@ function buildMatchedQuoteItem(item, product, matchMeta, priceOverride) {
     customerUnitType: quantityResult.customerUnitType,
     matchedProductKey: product.catalogKey || '',
     matchedProduct: product.productName,
-    matchedProductDisplay: product.displayName || product.productName,
+    matchedProductDisplay: product.productName,
     sourceRowNumber: product.sourceRowNumber,
     unitKgEquivalent: Number.isFinite(Number(product.unitKgEquivalent)) ? Number(product.unitKgEquivalent) : null,
     forceKgConversion: product.forceKgConversion === true,
     unit: quantityResult.unit,
+    supplierUnit: String(product.supplierUnit || '').trim(),
     unitType: product.unitType,
     supplyQuantity: quantityResult.supplyQuantity,
     price: effectivePrice,
@@ -769,13 +982,14 @@ function buildManualCheckItem(item, reason = 'no suitable product match found') 
     matchedProductKey: '',
     matchedProductDisplay: '',
     unit: '',
+    supplierUnit: '',
     unitType: '',
     supplyQuantity: 1,
     deliveredQuantity: null,
     deliveredUnitType: '',
     price: 0,
     total: 0,
-    status: 'MANUAL CHECK',
+    status: 'REVIEW REQUIRED',
     confidence: 'none',
     matchReason: reason,
     supplierProvision: ''
@@ -809,6 +1023,9 @@ export function prepareCatalog(priceList) {
 export function createMatchingEngine(products, additionalStrategies = [], options = {}) {
   const extraMatchers = additionalStrategies;
   const freshProduceTokens = buildFreshProduceTokenSet(products);
+  const matcherOptions = {
+    enableBusinessRules: options.enableBusinessRules !== false
+  };
   const fuzzyMatcher = createFuzzyMatcher(
     products,
     options.fuzzyThreshold ?? process.env.FUZZY_MATCH_THRESHOLD ?? DEFAULT_FUZZY_THRESHOLD,
@@ -817,13 +1034,28 @@ export function createMatchingEngine(products, additionalStrategies = [], option
 
   return {
     matchItem(item) {
-      const matchedProduct = matchProduct(item, products, fuzzyMatcher, freshProduceTokens);
+      const matchedProduct = matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherOptions);
       const fallbackProduct = matchedProduct || extraMatchers
         .map((matcher) => matcher(item, products))
         .find(Boolean);
 
       if (!fallbackProduct) {
         return buildManualCheckItem(item);
+      }
+
+      const confidenceRank = {
+        none: 0,
+        low: 1,
+        medium: 2,
+        high: 3,
+        manual: 4
+      };
+      const minAutoMatchConfidence = String(options.minAutoMatchConfidence || process.env.MIN_AUTO_MATCH_CONFIDENCE || 'medium').toLowerCase();
+      const minimumRank = confidenceRank[minAutoMatchConfidence] ?? 2;
+      const currentRank = confidenceRank[String(fallbackProduct.confidence || 'low').toLowerCase()] ?? 1;
+
+      if (currentRank < minimumRank) {
+        return buildManualCheckItem(item, 'low confidence match requires review');
       }
 
       return buildMatchedQuoteItem(item, fallbackProduct.product, fallbackProduct);

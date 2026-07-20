@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import ExcelJS from 'exceljs';
 import PDFDocument from 'pdfkit';
+import { GBP_USD_RATE } from './budgetAnalyzer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -300,7 +301,7 @@ function writeItemsToWorksheet(worksheet, items, itemStartRow, itemEndRow) {
     worksheet.getCell(`B${rowNumber}`).value = item.originalItem || '';
     worksheet.getCell(`C${rowNumber}`).value = buildSpecificationText(item);
     worksheet.getCell(`D${rowNumber}`).value = Number(item.supplyQuantity ?? 0) || 0;
-    worksheet.getCell(`E${rowNumber}`).value = getUnitType(item.unit);
+    worksheet.getCell(`E${rowNumber}`).value = String(item.supplierUnit || '').trim();
     worksheet.getCell(`F${rowNumber}`).value = Number(item.price || 0);
   }
 }
@@ -459,7 +460,7 @@ function styleItemRow(worksheet, rowNumber, item) {
 
   applyCellStyle(worksheet.getCell(`G${rowNumber}`), {
     alignment: { horizontal: 'right', vertical: 'middle' },
-    font: { name: 'Aptos', size: 10, color: { argb: EXCEL_COLORS.ink }, strike: isUnavailable },
+    font: { name: 'Aptos', size: 10, bold: true, color: { argb: EXCEL_COLORS.ink }, strike: isUnavailable },
     numFmt: '£#,##0.00'
   });
 
@@ -581,7 +582,7 @@ export async function buildExcelBuffer(quote) {
     worksheet.getCell(`B${rowNumber}`).value = item.originalItem || '';
     worksheet.getCell(`C${rowNumber}`).value = buildSpecificationText(item);
     worksheet.getCell(`D${rowNumber}`).value = supplyQuantity;
-    worksheet.getCell(`E${rowNumber}`).value = getUnitType(item.unit);
+    worksheet.getCell(`E${rowNumber}`).value = String(item.supplierUnit || '').trim();
     worksheet.getCell(`F${rowNumber}`).value = linePrice;
 
     ensureItemTotalMerge(worksheet, rowNumber);
@@ -607,10 +608,11 @@ export async function buildExcelBuffer(quote) {
   const shippingRow = subtotalRow + 2;
   const totalRow = subtotalRow + 3;
 
-  writeMergedValue(worksheet, `F${subtotalRow}`, 'Subtotal');
-  writeMergedValue(worksheet, `F${calloutRow}`, 'SAT - SUN Callout');
-  writeMergedValue(worksheet, `F${shippingRow}`, 'Shipping Charge');
-  writeMergedValue(worksheet, `F${totalRow}`, 'Grand Total');
+  writeMergedValue(worksheet, `G${subtotalRow}`, 'Subtotal');
+  writeMergedValue(worksheet, `G${calloutRow}`, 'Callout (SAT - SUN)');
+  writeMergedValue(worksheet, `G${shippingRow}`, 'Shipping');
+  writeMergedValue(worksheet, `G${totalRow}`, 'Grand Total');
+  writeMergedValue(worksheet, `G${totalRow + 1}`, 'Grand Total In USD');
 
   for (let rowNumber = subtotalRow; rowNumber <= totalRow; rowNumber += 1) {
     clearItemTotalMerge(worksheet, rowNumber);
@@ -625,7 +627,10 @@ export async function buildExcelBuffer(quote) {
   worksheet.getCell(`H${subtotalRow}`).value = { formula: `SUM(G${itemStartRow}:G${itemEndRow})` };
   worksheet.getCell(`H${calloutRow}`).value = isWeekend ? 150 : 0;
   worksheet.getCell(`H${shippingRow}`).value = lowOrder ? 250 : 0;
-  worksheet.getCell(`H${totalRow}`).value = { formula: `H${subtotalRow}+H${shippingRow}` };
+  worksheet.getCell(`H${totalRow}`).value = subtotalValue;
+  worksheet.getCell(`H${totalRow + 1}`).value = { formula: `H${totalRow}*${GBP_USD_RATE}` };
+
+  writeCompactFooter(worksheet, totalRow);
 
   return workbook.xlsx.writeBuffer();
 }
@@ -665,12 +670,13 @@ function drawTableHeader(document, startX, startY, columnWidths) {
 }
 
 function getTableRowValues(item, rowNumber) {
+  const displaySupplierUnit = String(item.supplierUnit || '').trim();
   return [
     String(item.lineNumber || rowNumber + 1),
     item.originalItem || '',
     rowStatusText(item),
     formatQuantity(item.supplyQuantity),
-    item.unit || '',
+    displaySupplierUnit,
     formatCurrency(item.price),
     formatCurrency(item.total)
   ];
@@ -700,6 +706,11 @@ function drawTableRow(document, item, rowNumber, startX, startY, columnWidths) {
   document.font('Helvetica').fontSize(9).fillColor(isUnavailable ? PDF_COLORS.muted : PDF_COLORS.text);
 
   columns.forEach((value, index) => {
+    const isTotalColumn = index === columns.length - 1;
+    document.font(isTotalColumn ? 'Helvetica-Bold' : 'Helvetica')
+      .fontSize(isTotalColumn ? 9.5 : 9)
+      .fillColor(isTotalColumn ? PDF_COLORS.navyDeep : (isUnavailable ? PDF_COLORS.muted : PDF_COLORS.text));
+
     document.text(String(value || '-'), cursorX + 6, startY + 6, {
       width: columnWidths[index] - 12,
       align: index >= 3 ? 'right' : 'left'
@@ -759,7 +770,7 @@ export function buildPdfBuffer(quote) {
       }
 
       document.addPage();
-      drawPageHeader();
+      cursorY = 40;
       if (includeTableHeader) {
         drawTableHeader(document, startX, cursorY, columnWidths);
         cursorY += 28;
@@ -814,16 +825,33 @@ export function buildPdfBuffer(quote) {
     ensurePageSpace(120);
 
     const totalsX = startX + 320;
+    const calloutFee = quote.items.some((item) => isUnavailableExportItem(item)) ? 0 : (new Date(quote.quoteDate || quote.createdAt).getDay() === 0 || new Date(quote.quoteDate || quote.createdAt).getDay() === 6 ? 150 : 0);
+    const shippingFee = exportSubtotal < 3000 ? 250 : 0;
+    const grandTotal = exportSubtotal;
+    const grandTotalUsd = grandTotal * GBP_USD_RATE;
+
     document.save();
-    document.roundedRect(totalsX, cursorY, 203, 68, 12).fillAndStroke(PDF_COLORS.navySoft, PDF_COLORS.border);
+    document.roundedRect(totalsX, cursorY, 203, 150, 12).fillAndStroke(PDF_COLORS.navySoft, PDF_COLORS.border);
     document.roundedRect(totalsX, cursorY, 203, 24, 12).fill(PDF_COLORS.navySoft);
     document.restore();
     document.font('Helvetica-Bold').fontSize(10).fillColor(PDF_COLORS.navyDeep).text('QUOTE TOTALS', totalsX + 14, cursorY + 7, { width: 175, align: 'left' });
-    drawLabelValue(document, 'Subtotal', formatCurrency(exportSubtotal), totalsX + 14, cursorY + 30, 175, { valueSize: 10 });
-    document.font('Helvetica-Bold').fontSize(11).fillColor(PDF_COLORS.navyDeep).text('Total', totalsX + 14, cursorY + 52, { width: 80 });
-    document.font('Times-Bold').fontSize(14).fillColor(PDF_COLORS.navy).text(formatCurrency(exportSubtotal), totalsX + 90, cursorY + 50, { width: 99, align: 'right' });
 
-    cursorY += 98;
+    let totalsCursorY = cursorY + 32;
+    const totalsRows = [
+      { label: 'Subtotal', value: formatCurrency(exportSubtotal) },
+      { label: 'Callout (SAT - SUN)', value: formatCurrency(calloutFee) },
+      { label: 'Shipping', value: formatCurrency(shippingFee) },
+      { label: 'Grand Total', value: formatCurrency(grandTotal) },
+      { label: 'Grand Total In USD', value: formatCurrency(grandTotalUsd) }
+    ];
+
+    totalsRows.forEach((row) => {
+      document.font('Helvetica-Bold').fontSize(8.5).fillColor(PDF_COLORS.navyDeep).text(row.label, totalsX + 14, totalsCursorY, { width: 105, align: 'left' });
+      document.font('Times-Bold').fontSize(10.5).fillColor(PDF_COLORS.navy).text(row.value, totalsX + 128, totalsCursorY, { width: 60, align: 'right' });
+      totalsCursorY += 20;
+    });
+
+    cursorY += 170;
     ensurePageSpace(70);
 
     if (unavailableCount > 0) {

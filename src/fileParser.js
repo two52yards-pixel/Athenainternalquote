@@ -12,7 +12,7 @@ const REQUISITION_HEADER_ALIASES = {
 const ATHENA_PRICE_LIST_HEADERS = {
   product: ['standard product name', 'product name', 'description2', 'description'],
   supplierQuantity: ['supplier quantity', 'supplier qantity'],
-  supplierUnit: ['supplier unit'],
+  supplierUnit: ['supplier unit', 'supplier'],
   unit: ['packaging per ctn', 'order quantity'],
   remarks: ['remarks', 'comments', 'note', 'notes'],
   price: ['sale price'],
@@ -91,6 +91,44 @@ function normalizeHeader(value) {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
     .trim();
+}
+
+function toStrictUnitLabel(value) {
+  const normalized = normalizeHeader(value);
+  if (!normalized) {
+    return '';
+  }
+
+  if (/(^|\s)(kg|kgs|kilogram|kilograms)(\s|$)/.test(normalized)) {
+    return 'KG';
+  }
+
+  if (/(^|\s)(g|gram|grams)(\s|$)/.test(normalized)) {
+    return 'G';
+  }
+
+  if (/(^|\s)(l|lt|ltr|liter|liters|litre|litres)(\s|$)/.test(normalized)) {
+    return 'LTR';
+  }
+
+  if (/(^|\s)(ml)(\s|$)/.test(normalized)) {
+    return 'ML';
+  }
+
+  if (/(^|\s)(pc|pcs|piece|pieces|ea|each|unit|units)(\s|$)/.test(normalized)) {
+    return 'PCS';
+  }
+
+  if (/(^|\s)(pack|packs|packet|packets|carton|cartons|case|cases|box|boxes|tray|trays|bag|bags|bottle|bottles|roll|rolls|tin|tins|jar|jars)(\s|$)/.test(normalized)) {
+    return 'PACK';
+  }
+
+  const lettersOnly = normalized.replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!lettersOnly) {
+    return '';
+  }
+
+  return lettersOnly.toUpperCase().split(' ')[0];
 }
 
 function parseNumber(value) {
@@ -553,7 +591,8 @@ function parseStandardPriceList(rows) {
     });
 }
 
-function parseAthenaWorkbook(workbook) {
+function parseAthenaWorkbook(workbook, options = {}) {
+  const preferSupplierUnitColumnC = options.preferSupplierUnitColumnC === true;
   const products = [];
 
   for (const sheetName of workbook.SheetNames) {
@@ -570,6 +609,9 @@ function parseAthenaWorkbook(workbook) {
     if (preferredProductIndex >= 0) {
       indexes.product = preferredProductIndex;
     }
+    const supplierUnitIndex = preferSupplierUnitColumnC
+      ? 2
+      : (indexes.supplierUnit >= 0 ? indexes.supplierUnit : -1);
     const dataRows = rows.slice(headerRowIndex + 1);
 
     for (const [rowOffset, row] of dataRows.entries()) {
@@ -583,11 +625,16 @@ function parseAthenaWorkbook(workbook) {
         && sourceRowNumber <= 615
         && Number.isFinite(unitKgEquivalent)
         && unitKgEquivalent > 0;
+      const rawSupplierUnit = supplierUnitIndex >= 0 ? String(row[supplierUnitIndex] ?? '').trim() : '';
+      const strictSupplierUnit = toStrictUnitLabel(rawSupplierUnit);
+      const exactSupplierUnit = rawSupplierUnit;
       const structuredSupplyMetadata = buildStructuredSupplyMetadata(
         indexes.supplierQuantity >= 0 ? row[indexes.supplierQuantity] : null,
-        indexes.supplierUnit >= 0 ? row[indexes.supplierUnit] : ''
+        supplierUnitIndex >= 0 ? row[supplierUnitIndex] : ''
       );
-      const legacyUnit = indexes.unit >= 0 ? String(row[indexes.unit] ?? '').trim() : '';
+      const legacyUnit = indexes.unit >= 0
+        ? String(row[indexes.unit] ?? '').trim()
+        : (supplierUnitIndex >= 0 ? String(row[supplierUnitIndex] ?? '').trim() : '');
       const derivedSupplyMetadata = !structuredSupplyMetadata && !legacyUnit
         ? deriveSupplyMetadataFromProductName(productName)
         : null;
@@ -619,6 +666,9 @@ function parseAthenaWorkbook(workbook) {
         productName,
         keywords: '',
         unit,
+        supplierUnit: preferSupplierUnitColumnC
+          ? exactSupplierUnit
+          : (strictSupplierUnit || toStrictUnitLabel(unit)),
         supplyOptions: supplyUnitMetadata.supplyOptions,
         unitType: supplyUnitMetadata.unitType,
         sourceRowNumber,
@@ -707,7 +757,9 @@ export async function loadPriceList(filePath) {
     return standardPriceList;
   }
 
-  const athenaPriceList = parseAthenaWorkbook(workbook);
+  const athenaPriceList = parseAthenaWorkbook(workbook, {
+    preferSupplierUnitColumnC: /ath\s*price\s*list\s*-\s*main\.xlsx$/i.test(path.basename(filePath || ''))
+  });
   if (athenaPriceList.length > 0) {
     return athenaPriceList;
   }

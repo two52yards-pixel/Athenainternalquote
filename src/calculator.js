@@ -30,7 +30,7 @@ export function detectUnitType(value) {
     return 'pcs';
   }
 
-  if (/(^|\s)(pack|packs|packet|packets|pkt|pkts|carton|cartons|case|cases|box|boxes|tray|trays|bag|bags|bottle|bottles|roll|rolls|tin|tins|jar|jars)(\s|$)/.test(normalized)) {
+  if (/(^|\s)(pack|packs|packet|packets|pkt|pkts|carton|cartons|case|cases|box|boxes|tray|trays|bag|bags|bottle|bottles|roll|rolls|tin|tins|jar|jars|bunch|bunches|bch|bchs)(\s|$)/.test(normalized)) {
     return 'pack';
   }
 
