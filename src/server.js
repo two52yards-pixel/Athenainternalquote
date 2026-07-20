@@ -74,7 +74,30 @@ await fs.mkdir(uploadsDirectory, { recursive: true });
 // =====================
 // LOAD DATA / STATE
 // =====================
-const priceListPath = process.env.PRICE_LIST_FILE || path.join(projectRoot, 'data', 'ATH PRICE LIST - MAIN.xlsx');
+async function resolvePriceListPath() {
+  const fallbackPaths = [
+    path.join(projectRoot, 'data', 'ATH PRODUCT LIST - MAIN.xlsx'),
+    process.env.PRICE_LIST_FILE ? path.resolve(projectRoot, process.env.PRICE_LIST_FILE) : '',
+    path.join(projectRoot, 'data', 'ATH PRICE LIST - MAIN.xlsx')
+  ];
+
+  for (const candidate of fallbackPaths) {
+    if (!candidate) {
+      continue;
+    }
+
+    try {
+      await fs.access(candidate);
+      return candidate;
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error('No price list file found. Expected PRICE_LIST_FILE or a workbook in data/.');
+}
+
+const priceListPath = await resolvePriceListPath();
 const rawPriceList = await loadPriceList(priceListPath);
 
 const catalog = prepareCatalog(rawPriceList);
