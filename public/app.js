@@ -730,6 +730,16 @@ function getSupplierUnit(item) {
   return String(item.supplierUnit || '').trim();
 }
 
+function resolveSupplierUnit(item, product = null) {
+  return String(
+    product?.supplierUnit
+    || item?.supplierUnit
+    || product?.unit
+    || item?.unit
+    || ''
+  ).trim();
+}
+
 function getTotalSuppliedText(item) {
   if (isItemUnavailable(item)) {
     return '';
@@ -854,9 +864,9 @@ function renderQuote(quote) {
     const product = state.products.find((candidate) => (candidate.catalogKey || candidate.productName) === (item.matchedProductKey || item.matchedProduct))
       || state.products.find((candidate) => candidate.productName === item.matchedProduct);
 
-    if (product) {
-      item.supplierUnit = String(product.supplierUnit || '').trim();
+    item.supplierUnit = resolveSupplierUnit(item, product || null);
 
+    if (product) {
       item.matchedProduct = String(product.productName || item.matchedProduct || '').trim();
       item.matchedProductDisplay = String(product.productName || item.matchedProductDisplay || '').trim();
     }
@@ -948,7 +958,7 @@ function refreshRow(row, changedField = '') {
   if (matchedProduct) {
     item.price = Number(matchedProduct.price) || 0;
     item.unit = normalizeSupplyLabel(selectedOption?.option?.label || matchedProduct.unit || '');
-    item.supplierUnit = String(matchedProduct.supplierUnit || '').trim();
+    item.supplierUnit = resolveSupplierUnit(item, matchedProduct);
     if (priceDisplay) priceDisplay.textContent = item.price.toFixed(2);
     item.matchedProductKey = matchedProduct.catalogKey || matchedProduct.productName;
     item.matchedProduct = matchedProduct.productName;
@@ -965,7 +975,7 @@ function refreshRow(row, changedField = '') {
     item.forceKgConversion = false;
     item.price = 0;
     item.unit = '';
-    item.supplierUnit = '';
+    item.supplierUnit = resolveSupplierUnit(item, null);
     if (priceDisplay) priceDisplay.textContent = '0.00';
   }
 
