@@ -731,13 +731,7 @@ function getSupplierUnit(item) {
 }
 
 function resolveSupplierUnit(item, product = null) {
-  return String(
-    product?.supplierUnit
-    || item?.supplierUnit
-    || product?.unit
-    || item?.unit
-    || ''
-  ).trim();
+  return String(product?.supplierUnit || item?.supplierUnit || '').trim();
 }
 
 function getTotalSuppliedText(item) {
