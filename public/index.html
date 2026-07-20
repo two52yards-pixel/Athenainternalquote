@@ -61,6 +61,17 @@
                 <input type="text" name="imoNumber" autocomplete="off" required>
               </label>
               <label class="field-card">
+                <span class="field-label">Budget</span>
+                <input type="text" name="budget" id="budget-input" inputmode="numeric" autocomplete="off" placeholder="e.g. 5000">
+              </label>
+              <label class="field-card">
+                <span class="field-label">Budget currency</span>
+                <select name="budgetCurrency" id="budget-currency-select" aria-label="Budget currency">
+                  <option value="GBP">GBP (£)</option>
+                  <option value="USD">USD ($)</option>
+                </select>
+              </label>
+              <label class="field-card">
                 <span class="field-label">Port of delivery</span>
                 <input type="text" name="port" autocomplete="off">
               </label>
@@ -119,6 +130,23 @@
           <button id="close-quote-view-button" class="close-view-button" type="button" aria-label="Close current quote view">Close</button>
         </div>
       </div>
+
+      <div class="budget-editor-panel hidden" id="budget-editor-panel">
+        <div class="budget-editor-grid">
+          <label class="field-card">
+            <span class="field-label">Budget</span>
+            <input type="text" id="summary-budget-input" inputmode="numeric" autocomplete="off" placeholder="Whole numbers only">
+          </label>
+          <label class="field-card">
+            <span class="field-label">Currency</span>
+            <select id="summary-budget-currency" aria-label="Updated budget currency">
+              <option value="GBP">GBP (£)</option>
+              <option value="USD">USD ($)</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
       <div class="summary-grid">
         <article>
           <strong id="summary-lines">0</strong>
@@ -135,6 +163,20 @@
         <article>
           <strong id="summary-total">£0.00</strong>
           <span>Draft total (GBP)</span>
+          <small id="summary-total-usd" class="summary-subvalue hidden">≈ $0.00</small>
+        </article>
+      </div>
+
+      <div class="budget-analysis-grid hidden" id="budget-analysis-grid">
+        <article class="budget-analysis-card" id="budget-client-card">
+          <strong id="budget-client-value">£0</strong>
+          <span id="budget-client-label">Client Budget (£)</span>
+          <small id="budget-client-converted" class="summary-subvalue">≈ $0.00</small>
+        </article>
+        <article class="budget-analysis-card" id="budget-status-card">
+          <strong id="budget-status-value">Within budget</strong>
+          <span>Budget Status</span>
+          <small id="budget-status-message" class="summary-subvalue">Review recommended</small>
         </article>
       </div>
     </section>
