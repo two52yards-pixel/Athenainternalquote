@@ -17,8 +17,7 @@ import { buildExcelBuffer, buildPdfBuffer } from './exporters.js';
 import { loadPriceList, parseRequisitionFile } from './parser.js';
 import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
-import { listQuotes, loadQuote, saveQuote, listAllQuotes, restoreAllQuotesFromR2, deleteQuote } from './quoteStore.js';
-import { loadMatchingPolicy, saveMatchingPolicy } from './matchingPolicyStore.js';
+import { listQuotes, loadQuote, saveQuote, listAllQuotes, restoreAllQuotesFromR2 } from './quoteStore.js';
 
 // =====================
 // PATH SETUP
@@ -74,109 +73,15 @@ await fs.mkdir(uploadsDirectory, { recursive: true });
 // =====================
 // LOAD DATA / STATE
 // =====================
-async function resolvePriceListPath() {
-  const fallbackPaths = [
-    process.env.PRICE_LIST_FILE ? path.resolve(projectRoot, process.env.PRICE_LIST_FILE) : '',
-    path.join(projectRoot, 'data', 'ATH PRICE LIST - MAIN.xlsx'),
-    path.join(projectRoot, 'data', 'ATH PRODUCT LIST - MAIN.xlsx')
-  ];
-
-  for (const candidate of fallbackPaths) {
-    if (!candidate) {
-      continue;
-    }
-
-    try {
-      await fs.access(candidate);
-      return candidate;
-    } catch {
-      continue;
-    }
-  }
-
-  throw new Error('No price list file found. Expected PRICE_LIST_FILE or a workbook in data/.');
-}
-
-const priceListPath = await resolvePriceListPath();
+const priceListPath = process.env.PRICE_LIST_FILE || path.join(projectRoot, 'data', 'ATH PRICE LIST - MAIN.xlsx');
 const rawPriceList = await loadPriceList(priceListPath);
 
 const catalog = prepareCatalog(rawPriceList);
-let matchingPolicy = await loadMatchingPolicy();
-
-function createMatcherFromPolicy() {
-  return createMatchingEngine(catalog, [], {
-    fuzzyThreshold: Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7),
-    minAutoMatchConfidence: matchingPolicy.minAutoMatchConfidence,
-    enableBusinessRules: matchingPolicy.enableBusinessRules
-  });
-}
-
-let matcher = createMatcherFromPolicy();
+const matcher = createMatchingEngine(catalog, [], {
+  fuzzyThreshold: Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7)
+});
 
 let quoteInsights = await loadQuoteInsights(catalog);
-
-const catalogByKey = new Map();
-const catalogByName = new Map();
-for (const product of catalog) {
-  const key = String(product.catalogKey || '').trim();
-  const name = String(product.productName || '').trim();
-  if (key) {
-    catalogByKey.set(key, product);
-  }
-  if (name) {
-    catalogByName.set(name, product);
-  }
-}
-
-function resolveCatalogProduct(item = {}) {
-  const matchedKey = String(item.matchedProductKey || '').trim();
-  if (matchedKey && catalogByKey.has(matchedKey)) {
-    return catalogByKey.get(matchedKey);
-  }
-
-  const matchedName = String(item.matchedProduct || item.matchedProductDisplay || '').trim();
-  if (matchedName && catalogByName.has(matchedName)) {
-    return catalogByName.get(matchedName);
-  }
-
-  return null;
-}
-
-function deriveSupplierUnitLabel(value) {
-  const text = String(value ?? '').trim();
-  if (!text) {
-    return '';
-  }
-
-  const match = text.match(/\b(box|bag|carton|case|tray|pack|packet|bottle|roll|tin|jar|bunch|kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|piece|pieces|ea|each|unit|units)\b/i);
-  if (match) {
-    return match[1];
-  }
-
-  const firstToken = text.replace(/[^a-z0-9\/\s]/gi, ' ').replace(/\s+/g, ' ').trim().split(' ')[0];
-  return firstToken || '';
-}
-
-function hydrateQuoteItems(items = []) {
-  return items.map((item) => {
-    const product = resolveCatalogProduct(item);
-    const supplierUnit = String(
-      product?.supplierUnit
-      || item?.supplierUnit
-      || deriveSupplierUnitLabel(product?.unit)
-      || deriveSupplierUnitLabel(item?.unit)
-      || ''
-    ).trim();
-    const matchedProductName = String(product?.productName || item?.matchedProduct || '').trim();
-
-    return {
-      ...item,
-      supplierUnit,
-      matchedProduct: matchedProductName,
-      matchedProductDisplay: matchedProductName
-    };
-  });
-}
 
 function getQuoteScopeKey(req) {
   // Use the authenticated client's ID as the scope key.
@@ -195,7 +100,6 @@ function parseWholeBudgetValue(value) {
 }
 
 function buildResponse(quote) {
-  const hydratedItems = hydrateQuoteItems(Array.isArray(quote.items) ? quote.items : []);
   return {
     id: quote.id,
     quoteNumber: quote.quoteNumber,
@@ -210,7 +114,7 @@ function buildResponse(quote) {
     agentName: quote.agentName,
     budget: quote.budget ?? null,
     budgetCurrency: quote.budgetCurrency || 'GBP',
-    items: hydratedItems,
+    items: quote.items,
     summary: quote.summary,
     quoteStatus: quote.quoteStatus,
     createdAt: quote.createdAt,
@@ -266,8 +170,7 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
       matcher.matchItem ? matcher.matchItem(item) : item
     );
 
-    const hydratedItems = hydrateQuoteItems(matchedItems);
-    const summary = summarizeQuote(hydratedItems);
+    const summary = summarizeQuote(matchedItems);
 
     // Save draft locally only — no R2 upload at this stage
     const budgetValue = parseWholeBudgetValue(req.body.budget);
@@ -285,7 +188,7 @@ app.post('/api/quotes/process', upload.single('requisitionFile'), async (req, re
       budget: hasBudget ? budgetValue : null,
       budgetCurrency: hasBudget ? (req.body.budgetCurrency || 'GBP').toUpperCase() : 'GBP',
       originalFileName: req.file.originalname,
-      items: hydratedItems,
+      items: matchedItems,
       summary
     });
 
@@ -304,8 +207,7 @@ app.put('/api/quotes/:id', async (req, res, next) => {
     const scopeKey = getQuoteScopeKey(req);
     const existing = await loadQuote(req.params.id, scopeKey);
     const incomingItems = Array.isArray(req.body.items) ? req.body.items : existing.items;
-    const hydratedItems = hydrateQuoteItems(incomingItems);
-    const summary = summarizeQuote(hydratedItems);
+    const summary = summarizeQuote(incomingItems);
 
     const incomingBudget = parseWholeBudgetValue(req.body.budget ?? existing.budget ?? '');
     const hasBudget = incomingBudget !== null;
@@ -313,7 +215,7 @@ app.put('/api/quotes/:id', async (req, res, next) => {
     const updated = await saveQuote({
       ...existing,
       scopeKey,
-      items: hydratedItems,
+      items: incomingItems,
       budget: hasBudget ? incomingBudget : null,
       budgetCurrency: hasBudget ? (req.body.budgetCurrency || existing.budgetCurrency || 'GBP').toUpperCase() : 'GBP',
       summary
@@ -333,18 +235,14 @@ app.put('/api/quotes/:id', async (req, res, next) => {
 app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
   try {
     const quote = await loadQuote(req.params.id, getQuoteScopeKey(req));
-    const hydratedQuote = {
-      ...quote,
-      items: hydrateQuoteItems(Array.isArray(quote.items) ? quote.items : [])
-    };
 
     // Generate a single buffer — this is the canonical final version
-    const buffer = Buffer.from(await buildExcelBuffer(hydratedQuote));
+    const buffer = Buffer.from(await buildExcelBuffer(quote));
 
     // Upload the exact same bytes to R2
-    if (hydratedQuote.quoteNumber) {
+    if (quote.quoteNumber) {
       await uploadToR2(
-        `${hydratedQuote.quoteNumber}.xlsx`,
+        `${quote.quoteNumber}.xlsx`,
         buffer,
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       );
@@ -356,7 +254,7 @@ app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
     );
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${hydratedQuote.quoteNumber || hydratedQuote.id}.xlsx"`
+      `attachment; filename="${quote.quoteNumber || quote.id}.xlsx"`
     );
 
     // Send the same buffer to the client
@@ -372,18 +270,14 @@ app.get('/api/quotes/:id/export.xlsx', async (req, res, next) => {
 app.get('/api/quotes/:id/export.pdf', async (req, res, next) => {
   try {
     const quote = await loadQuote(req.params.id, getQuoteScopeKey(req));
-    const hydratedQuote = {
-      ...quote,
-      items: hydrateQuoteItems(Array.isArray(quote.items) ? quote.items : [])
-    };
 
     // Generate a single buffer — this is the canonical final version
-    const buffer = await buildPdfBuffer(hydratedQuote);
+    const buffer = await buildPdfBuffer(quote);
 
     // Upload the exact same bytes to R2
-    if (hydratedQuote.quoteNumber) {
+    if (quote.quoteNumber) {
       await uploadToR2(
-        `${hydratedQuote.quoteNumber}.pdf`,
+        `${quote.quoteNumber}.pdf`,
         buffer,
         'application/pdf'
       );
@@ -392,7 +286,7 @@ app.get('/api/quotes/:id/export.pdf', async (req, res, next) => {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename="${hydratedQuote.quoteNumber || hydratedQuote.id}.pdf"`
+      `attachment; filename="${quote.quoteNumber || quote.id}.pdf"`
     );
 
     // Send the same buffer to the client
@@ -512,16 +406,6 @@ app.get('/api/admin/quotes/:clientId/:id/export.pdf', requireAuth, requireAdmin,
   } catch (err) { next(err); }
 });
 
-// ADMIN DELETE QUOTE — enables orphaned quote cleanup from admin panel.
-app.delete('/api/admin/quotes/:clientId/:id', requireAuth, requireAdmin, async (req, res, next) => {
-  try {
-    await deleteQuote(req.params.clientId, req.params.id);
-    res.json({ ok: true });
-  } catch (err) {
-    next(err);
-  }
-});
-
 // =====================
 // ERROR HANDLER
 // =====================
@@ -546,29 +430,4 @@ app.listen(port, async () => {
   await restoreAllQuotesFromR2().catch(err => console.error('[quotes] R2 restore error:', err.message));
   // Seed admin account on first boot — safe no-op on subsequent starts
   await seedAdminIfNeeded().catch(err => console.error('[auth] Admin seed error:', err.message));
-});
-
-// ADMIN — MATCHING POLICY (admin-only controls, never exposed to client panel)
-app.get('/api/admin/matching-policy', requireAuth, requireAdmin, async (req, res, next) => {
-  try {
-    res.json({ policy: matchingPolicy });
-  } catch (err) {
-    next(err);
-  }
-});
-
-app.put('/api/admin/matching-policy', requireAuth, requireAdmin, async (req, res, next) => {
-  try {
-    const nextPolicy = {
-      enableBusinessRules: req.body?.enableBusinessRules,
-      minAutoMatchConfidence: req.body?.minAutoMatchConfidence
-    };
-
-    matchingPolicy = await saveMatchingPolicy(nextPolicy);
-    matcher = createMatcherFromPolicy();
-
-    res.json({ ok: true, policy: matchingPolicy });
-  } catch (err) {
-    next(err);
-  }
 });

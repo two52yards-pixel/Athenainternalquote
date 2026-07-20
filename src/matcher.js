@@ -34,6 +34,11 @@ function normalizeText(value) {
     .replace(/\blitres?\b/g, ' liter ')
     .replace(/\brolls\b/g, ' roll ')
     .replace(/\bcartons\b/g, ' carton ')
+    // Produce name normalisations — ensure consistent text before matching
+    .replace(/\bwatermelons?\b/g, ' water melon ')
+    .replace(/\bhoneydew\b/g, ' honeydew melon ')
+    .replace(/\bhoney\s+melon[s]?\b/g, ' honeydew melon ')
+    .replace(/\bsweet\s+melon[s]?\b/g, ' honeydew melon ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -192,6 +197,61 @@ const PRODUCE_STYLE_TOKENS = new Set([
   'jarred',
   'preserved'
 ]);
+
+// =====================
+// FORCED CATALOG OVERRIDES
+// Maps normalised request text to a specific catalog key.
+// Rules are evaluated in order; first match wins.
+// =====================
+const FORCED_CATALOG_OVERRIDES = [
+  // --- Soft drinks ---
+  // Diet cola / coke (most specific first)
+  { test: (n) => /\bdiet\b/.test(n) && /\b(?:coca\s*cola|coke|cola)\b/.test(n), key: 'ATH-DRK008' },
+  // Bottled cola / coke
+  { test: (n) => /\b(?:coca\s*cola|coke|cola)\b/.test(n) && /\b(?:btl|bottle)\b/.test(n), key: 'ATH-DRK005' },
+  // Canned cola / coke (default — no bottle, no diet)
+  { test: (n) => /\b(?:coca\s*cola|coke|cola)\b/.test(n), exclude: /\b(?:btl|bottle|diet)\b/, key: 'ATH-DRK007' },
+  // Fanta lemon can
+  { test: (n) => /\bfanta\b/.test(n) && /\blemon\b/.test(n), exclude: /\b(?:btl|bottle)\b/, key: 'ATH-DRK011' },
+  // Fanta orange can (default — not bottled, not lemon)
+  { test: (n) => /\bfanta\b/.test(n), exclude: /\b(?:btl|bottle|lemon)\b/, key: 'ATH-DRK012' },
+  // Sprite bottled
+  { test: (n) => /\bsprite\b/.test(n) && /\b(?:btl|bottle)\b/.test(n), key: 'ATH-DRK013' },
+  // Sprite can (default)
+  { test: (n) => /\bsprite\b/.test(n), exclude: /\b(?:btl|bottle)\b/, key: 'ATH-DRK014' },
+  // --- Fresh vegetables ---
+  // Aubergine / eggplant → EGGPLANT 12XBOX (not roasted)
+  { test: (n) => /\b(?:aubergine|eggplant)[s]?\b/.test(n), exclude: /\broasted\b/, key: 'ATH-FVG027' },
+  // Cauliflower → CAULIFLOWER 8XBOX (not frozen)
+  { test: (n) => /\bcauliflower[s]?\b/.test(n), exclude: /\bfrozen\b/, key: 'ATH-FVG017' },
+  // Spring / green / fresh onion → SPRING ONIONS 12XBOX
+  { test: (n) => /\b(?:spring\s+onion|green\s+onion|fresh\s+onion)[s]?\b/.test(n), key: 'ATH-FVG058' },
+  // Fresh tomato → TOMATOES 6KG (exclude cherry and all processed/canned forms)
+  {
+    test: (n) => /\btomato(?:es)?\b/.test(n),
+    exclude: /\b(?:cherry|paste|puree|juice|ketchup|soup|canned|tinned|chopped|peeled|pilchard|sardine|mackerel|sauce)\b/,
+    key: 'ATH-FVG062'
+  },
+  // --- Fresh fruit ---
+  // Yellow pear → PEARS YELLOW 12XBOX (most specific, before the green-pear default)
+  { test: (n) => /\byellow\b/.test(n) && /\bpear[s]?\b/.test(n), key: 'ATH-FFR019' },
+  // Pear → PEARS GREEN 70XBOX (not yellow / syrup / canned)
+  { test: (n) => /\bpear[s]?\b/.test(n), exclude: /\b(?:yellow|syrup|canned|tinned|juice)\b/, key: 'ATH-FFR018' },
+  // Fresh pineapple → PINEAPPLE 8XBOX (not juice / frozen / canned / sliced)
+  {
+    test: (n) => /\bpineapple[s]?\b/.test(n),
+    exclude: /\b(?:juice|frozen|chunk|slice|canned|tinned)\b/,
+    key: 'ATH-FFR020'
+  },
+  // Watermelon → WATER MELON 5XBOX (note: normalizeText converts 'watermelon' → 'water melon')
+  { test: (n) => /\bwater\s*melon[s]?\b/.test(n), key: 'ATH-FFR023' },
+  // Honeydew / sweet melon / melon → HONEYDEW MELON 7XBOX (not watermelon / cantaloupe)
+  {
+    test: (n) => /\b(?:honeydew\s+melon|honeydew|honey\s+melon|sweet\s+melon|melon)[s]?\b/.test(n),
+    exclude: /\b(?:water|cantaloupe)\b/,
+    key: 'ATH-FFR011'
+  }
+];
 
 const PRODUCE_CONTEXT_SKIP_TOKENS = new Set([
   ...QUALIFIER_TOKENS,
@@ -525,8 +585,8 @@ function tryBusinessRuleMatch(context, products) {
     }
   }
 
-  // Pineapple
-  if (hasToken(/\bpine\s*apple\b|\bpineapple\b/)) {
+  // Pineapple — only match to fresh PINEAPPLE 8XBOX; leave juice/frozen/canned to normal matching
+  if (hasToken(/\bpine\s*apple\b|\bpineapple\b/) && !hasToken(/\bjuice\b|\bfrozen\b|\bcanned\b|\btinned\b|\bchunk\b|\bslice\b/)) {
     const product = findProductByRule(products, [/\bpine\s*apple\b|\bpineapple\b/], [], [/\b8\s*x\s*box\b|\b8xbox\b/]);
     if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: pineapple -> 8xbox' };
   }
@@ -826,6 +886,16 @@ function matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherO
   const requestedQty = context.request.customerQuantity;
   const requestedUnitType = context.request.customerUnitType;
   const normalizedRequest = normalizeText(item.originalItem || '');
+
+  // Forced catalog overrides — highest priority, evaluated before all other matching logic.
+  for (const override of FORCED_CATALOG_OVERRIDES) {
+    if (override.test(normalizedRequest) && (!override.exclude || !override.exclude.test(normalizedRequest))) {
+      const forcedProduct = products.find((p) => p.catalogKey === override.key);
+      if (forcedProduct) {
+        return { product: forcedProduct, score: 1, confidence: 'high', reason: `forced match: ${override.key}` };
+      }
+    }
+  }
 
   // Business constraint: strawberries should default to 135g SKU only.
   // If the catalog does not contain that SKU, do not auto-match to milk/syrup/jam variants.
