@@ -98,7 +98,7 @@ router.post('/signup', async (req, res) => {
 
     const passwordHash = await bcrypt.hash(password, 10);
     const client = await createClient({ fullName, email, passwordHash, companyName });
-    // Non-blocking welcome email — signup succeeds even if mail fails
+    // Non-blocking welcome email ï¿½ signup succeeds even if mail fails
     sendWelcomeEmail({ fullName: client.fullName, email: client.email })
       .then(() => console.log('[auth] Welcome email sent to:', client.email))
       .catch(err => console.error('[auth] Welcome email FAILED:', err.message, err.code || ''));
