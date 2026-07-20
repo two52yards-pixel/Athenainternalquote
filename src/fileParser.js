@@ -758,7 +758,7 @@ export async function loadPriceList(filePath) {
   }
 
   const athenaPriceList = parseAthenaWorkbook(workbook, {
-    preferSupplierUnitColumnC: /ath\s*price\s*list\s*-\s*main\.xlsx$/i.test(path.basename(filePath || ''))
+    preferSupplierUnitColumnC: /ath\s*(?:price|product)\s*list\s*-\s*main\.xlsx$/i.test(path.basename(filePath || ''))
   });
   if (athenaPriceList.length > 0) {
     return athenaPriceList;
