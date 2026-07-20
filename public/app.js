@@ -730,8 +730,29 @@ function getSupplierUnit(item) {
   return String(item.supplierUnit || '').trim();
 }
 
+function deriveSupplierUnitLabel(value) {
+  const text = String(value ?? '').trim();
+  if (!text) {
+    return '';
+  }
+
+  const match = text.match(/\b(box|bag|carton|case|tray|pack|packet|bottle|roll|tin|jar|bunch|kg|kgs|g|gram|grams|l|lt|ltr|liter|litre|liters|litres|ml|pcs|pc|piece|pieces|ea|each|unit|units)\b/i);
+  if (match) {
+    return match[1];
+  }
+
+  const firstToken = text.replace(/[^a-z0-9\/\s]/gi, ' ').replace(/\s+/g, ' ').trim().split(' ')[0];
+  return firstToken || '';
+}
+
 function resolveSupplierUnit(item, product = null) {
-  return String(product?.supplierUnit || item?.supplierUnit || '').trim();
+  return String(
+    product?.supplierUnit
+    || item?.supplierUnit
+    || deriveSupplierUnitLabel(product?.unit)
+    || deriveSupplierUnitLabel(item?.unit)
+    || ''
+  ).trim();
 }
 
 function getTotalSuppliedText(item) {
