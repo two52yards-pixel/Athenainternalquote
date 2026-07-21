@@ -460,13 +460,7 @@ function styleItemRow(worksheet, rowNumber, item) {
 
   applyCellStyle(worksheet.getCell(`G${rowNumber}`), {
     alignment: { horizontal: 'right', vertical: 'middle' },
-    font: { name: 'Aptos', size: 10, color: { argb: EXCEL_COLORS.ink }, strike: isUnavailable },
-    numFmt: '£#,##0.00'
-  });
-
-  applyCellStyle(worksheet.getCell(`H${rowNumber}`), {
-    alignment: { horizontal: 'right', vertical: 'middle' },
-    font: { name: 'Aptos', size: 10, bold: true, color: { argb: EXCEL_COLORS.navyDeep }, strike: isUnavailable },
+    font: { name: 'Aptos', size: 10, bold: true, color: { argb: EXCEL_COLORS.ink }, strike: isUnavailable },
     numFmt: '£#,##0.00'
   });
 }
@@ -539,7 +533,7 @@ export async function buildExcelBuffer(quote) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(orderTemplatePath);
 
-  const worksheet = workbook.getWorksheet('Pro Forma Invoice') || workbook.getWorksheet('Quote 1') || workbook.worksheets[0];
+  const worksheet = workbook.getWorksheet('MARINE SUPPLY AND PROVISION QUOTE') || workbook.getWorksheet('Quote 1') || workbook.worksheets[0];
 
   const itemStartRow = 22;
   const templateItemEndRow = 36;
@@ -563,7 +557,6 @@ export async function buildExcelBuffer(quote) {
     for (let index = 0; index < extraRows; index += 1) {
       const rowNumber = templateItemEndRow + 1 + index;
       copyRowFormatting(worksheet, templateItemEndRow, rowNumber, 11);
-      ensureItemTotalMerge(worksheet, rowNumber);
     }
   }
 
@@ -585,7 +578,6 @@ export async function buildExcelBuffer(quote) {
     worksheet.getCell(`E${rowNumber}`).value = String(item.supplierUnit || '').trim() || getUnitType(item.unit);
     worksheet.getCell(`F${rowNumber}`).value = linePrice;
 
-    ensureItemTotalMerge(worksheet, rowNumber);
     worksheet.getCell(`G${rowNumber}`).value = { formula: `D${rowNumber}*F${rowNumber}` };
     worksheet.getCell(`K${rowNumber}`).value = isUnavailable ? 'Unavailable' : '';
 
@@ -608,15 +600,6 @@ export async function buildExcelBuffer(quote) {
   const shippingRow = subtotalRow + 2;
   const totalRow = subtotalRow + 3;
 
-  writeMergedValue(worksheet, `F${subtotalRow}`, 'Subtotal');
-  writeMergedValue(worksheet, `F${calloutRow}`, 'SAT - SUN Callout');
-  writeMergedValue(worksheet, `F${shippingRow}`, 'Shipping Charge');
-  writeMergedValue(worksheet, `F${totalRow}`, 'Grand Total');
-
-  for (let rowNumber = subtotalRow; rowNumber <= totalRow; rowNumber += 1) {
-    clearItemTotalMerge(worksheet, rowNumber);
-  }
-
   const subtotalValue = Number(quote?.summary?.totalValue || 0);
   const quoteDate = toDate(quote.quoteDate || quote.createdAt);
   const day = quoteDate.getDay();
@@ -628,19 +611,8 @@ export async function buildExcelBuffer(quote) {
   worksheet.getCell(`H${shippingRow}`).value = lowOrder ? 250 : 0;
   worksheet.getCell(`H${totalRow}`).value = { formula: `H${subtotalRow}+H${shippingRow}` };
 
-  writeCompactFooter(worksheet, totalRow);
-
-  const budgetAnalysis = getBudgetAnalysis(quote);
-  if (budgetAnalysis) {
-    const budgetNotesRow = totalRow + 8;
-    const budgetStatusRow = budgetNotesRow + 2;
-    worksheet.getCell(`A${budgetNotesRow}`).value = 'Budget';
-    worksheet.getCell(`B${budgetNotesRow}`).value = `${budgetAnalysis.inputDisplay} (${budgetAnalysis.budgetCurrency})`;
-    worksheet.getCell(`C${budgetNotesRow}`).value = `≈ ${budgetAnalysis.convertedDisplay}`;
-    worksheet.getCell(`A${budgetStatusRow}`).value = 'Budget Status';
-    worksheet.getCell(`B${budgetStatusRow}`).value = budgetAnalysis.budgetStatusDisplay;
-    worksheet.getCell(`C${budgetStatusRow}`).value = budgetAnalysis.budgetAdvice;
-  }
+  const usdRow = totalRow + 1;
+  worksheet.getCell(`H${usdRow}`).value = { formula: `H${totalRow}*1.5` };
 
   return workbook.xlsx.writeBuffer();
 }
@@ -768,17 +740,13 @@ export function buildPdfBuffer(quote) {
       cursorY = 140;
     };
 
-    const ensurePageSpace = (height, includeTableHeader = false) => {
+    const ensurePageSpace = (height) => {
       if (cursorY + height <= document.page.height - 48) {
         return;
       }
 
       document.addPage();
-      drawPageHeader();
-      if (includeTableHeader) {
-        drawTableHeader(document, startX, cursorY, columnWidths);
-        cursorY += 28;
-      }
+      cursorY = 40;
     };
 
     drawPageHeader();
@@ -820,7 +788,7 @@ export function buildPdfBuffer(quote) {
 
     for (let index = 0; index < quote.items.length; index += 1) {
       const previewValues = getTableRowValues(quote.items[index], index);
-      ensurePageSpace(measureTableRowHeight(document, previewValues, columnWidths), true);
+      ensurePageSpace(measureTableRowHeight(document, previewValues, columnWidths));
       const rowHeight = drawTableRow(document, quote.items[index], index, startX, cursorY, columnWidths);
       cursorY += rowHeight;
     }
