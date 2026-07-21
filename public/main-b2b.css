@@ -509,6 +509,11 @@ button:disabled {
   font-weight: 600;
 }
 
+.top-spend-pill--over {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .top-spend-row .item-cell {
   display: flex;
   flex-direction: column;

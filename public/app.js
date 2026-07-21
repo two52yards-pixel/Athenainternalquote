@@ -809,6 +809,7 @@ function renderQuote(quote) {
   }
 
   const topLineItems = new Map(getTopLineTotalItems(state.currentQuote.items, 3).map((item) => [item.lineNumber, item.rank]));
+  const initialBudgetTone = analyzeBudgetQuote(state.currentQuote)?.tone || null;
 
   // Always refresh supplierUnit from the live catalog so column C changes
   // are reflected immediately without re-processing the quote.
@@ -848,9 +849,7 @@ function renderQuote(quote) {
     const isUnavailable = toggleConfig.isUnavailable;
     const disabledAttribute = isUnavailable ? 'disabled' : '';
     const topSpendRank = topLineItems.get(item.lineNumber);
-    const highlightMarkup = topSpendRank
-      ? `<span class="top-spend-pill">💡 Review Quantity</span>`
-      : '';
+    const highlightMarkup = topSpendRank ? buildTopSpendPill(initialBudgetTone) : '';
 
     return `
       <tr data-index="${index}" class="${isUnavailable ? 'row-unavailable' : ''} ${topSpendRank ? 'top-spend-row' : ''}">
@@ -1022,6 +1021,60 @@ function refreshRow(row, changedField = '') {
 
   summarizeCurrentQuote();
   updateSummary(state.currentQuote);
+  updateTopSpendPills();
+}
+
+function buildTopSpendPill(tone) {
+  const isOver = tone === 'red' || tone === 'orange';
+  if (!isOver) {
+    return '';
+  }
+  return `<span class="top-spend-pill top-spend-pill--over">⚠️ Review Quantity</span>`;
+}
+
+function updateTopSpendPills() {
+  if (!state.currentQuote) {
+    return;
+  }
+
+  const budgetTone = analyzeBudgetQuote(state.currentQuote)?.tone || null;
+  const isOver = budgetTone === 'red' || budgetTone === 'orange';
+  const pillText = '⚠️ Review Quantity';
+
+  const topLineItems = new Map(
+    getTopLineTotalItems(state.currentQuote.items, 3).map((topItem) => [topItem.lineNumber, topItem.rank])
+  );
+
+  for (const row of resultsTableBody.querySelectorAll('tr[data-index]')) {
+    const index = Number(row.dataset.index);
+    const item = state.currentQuote.items[index];
+    if (!item) {
+      continue;
+    }
+
+    const itemCell = row.querySelector('.item-cell');
+    if (!itemCell) {
+      continue;
+    }
+
+    const existingPill = itemCell.querySelector('.top-spend-pill');
+    const shouldHavePill = isOver && topLineItems.has(item.lineNumber);
+
+    if (shouldHavePill) {
+      if (existingPill) {
+        existingPill.textContent = pillText;
+      } else {
+        const pill = document.createElement('span');
+        pill.className = 'top-spend-pill top-spend-pill--over';
+        pill.textContent = pillText;
+        itemCell.appendChild(pill);
+        row.classList.add('top-spend-row');
+      }
+    } else if (existingPill) {
+      existingPill.remove();
+      row.classList.remove('top-spend-row');
+    }
+  }
 }
 
 async function loadHistory() {
@@ -1052,6 +1105,7 @@ function syncBudgetFromSummaryInputs() {
   state.currentQuote.budgetCurrency = summaryBudgetCurrency?.value || 'GBP';
   summarizeCurrentQuote();
   updateSummary(state.currentQuote);
+  updateTopSpendPills();
 }
 
 // =====================
