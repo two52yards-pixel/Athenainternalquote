@@ -3,11 +3,138 @@ import path from 'node:path';
 import xlsx from 'xlsx';
 import { convertToBaseUnit, detectUnitType, parseSupplyOptions } from './calculator.js';
 
-const REQUISITION_HEADER_ALIASES = {
-  description: ['description', 'item', 'item name', 'product', 'goods', 'material'],
-  quantity: ['qty', 'quantity'],
-  unit: ['unit', 'uom', 'u m', 'units']
+// Requisition sheets arrive from hundreds of different agents/vessels, so each column
+// is matched by a scored rule set instead of a fixed alias list:
+//   exact   -> the whole header cell equals a well-known label (strongest signal)
+//   generic -> the whole header cell equals a short/ambiguous label
+//   phrases -> a known label appears as a whole word sequence inside a longer header
+//   weak    -> a keyword appears anywhere in the header (last resort)
+//   reject  -> the header belongs to a different column (e.g. "UNIT PRICE" is not a unit)
+const REQUISITION_COLUMN_RULES = {
+  description: {
+    exact: [
+      'description', 'descriptions', 'description of item', 'description of items',
+      'description of goods', 'description of the goods', 'description of product',
+      'description of products', 'description of material', 'description of materials',
+      'item description', 'items description', 'item descriptions', 'goods description',
+      'product description', 'products description', 'material description',
+      'article description', 'commodity description', 'merchandise description',
+      'full description', 'short description', 'long description', 'english description',
+      'description english', 'item name', 'items name', 'item names', 'name of item',
+      'name of items', 'product name', 'products name', 'product names',
+      'name of product', 'name of the product', 'name of products', 'product title',
+      'material name', 'name of material', 'article name', 'commodity name',
+      'goods name', 'name of goods', 'name of the goods', 'stock item', 'stock items',
+      'stock name', 'stock description', 'item particulars', 'particulars of item',
+      'particulars of goods', 'item details', 'item detail', 'details of item',
+      'product details', 'item specification', 'item specifications',
+      'specification', 'specifications', 'nomenclature', 'designation',
+      'requested item', 'requested items', 'item requested', 'items requested',
+      'required item', 'required items', 'item required', 'items required',
+      'food item', 'food items', 'provision item', 'provision items',
+      'store item', 'store items', 'ships store', 'ship store', 'item name description',
+      'description item', 'description product', 'item product', 'product item',
+      'descripcion', 'descripcion del producto', 'nombre del producto', 'producto',
+      'descricao', 'descricao do produto', 'produto', 'artikel', 'bezeichnung',
+      'articulo', 'article', 'articles', 'designation article', 'libelle',
+      'produit', 'nom du produit', 'merchandise', 'prodotto', 'descrizione'
+    ],
+    generic: [
+      'item', 'items', 'product', 'products', 'goods', 'good', 'material', 'materials',
+      'commodity', 'commodities', 'particulars', 'particular', 'details', 'detail',
+      'name', 'names', 'title', 'subject', 'supply', 'supplies', 'requirement',
+      'requirements', 'spec', 'specs', 'desc', 'descr', 'part', 'parts',
+      'part name', 'part description', 'ingredient', 'ingredients', 'provision',
+      'provisions', 'stores', 'store', 'stock', 'articles required'
+    ],
+    phrases: [
+      'description', 'item name', 'product name', 'item description',
+      'product description', 'material description', 'goods description',
+      'nomenclature', 'particulars', 'descripcion', 'descricao', 'bezeichnung',
+      'name of', 'item', 'product'
+    ],
+    weak: [
+      /(^|\s)(item|items|product|products|goods|material|materials|article|articles|commodity|provision|provisions|stock|merchandise|desc|description|name)(\s|$)/
+    ],
+    reject: [
+      /(^|\s)(qty|qtys|quantity|quantities|uom|unit|units|price|prices|cost|costs|rate|rates|amount|value|total|subtotal|usd|eur|gbp|aed|sar|sgd|currency|vat|tax|discount|date|code|codes|sku|barcode|ref|reference|serial|number|numbers|num|no|nos|s n|sr|slno|sl|id|remark|remarks|comment|comments|note|notes|status|delivery|port|vessel|imo)(\s|$)/
+    ]
+  },
+  quantity: {
+    exact: [
+      'quantity', 'quantities', 'qty', 'qtys', 'qty s', 'quantity required',
+      'required quantity', 'qty required', 'required qty', 'reqd qty',
+      'reqd quantity', 'qty reqd', 'requested quantity', 'quantity requested',
+      'qty requested', 'requested qty', 'order quantity', 'quantity ordered',
+      'ordered quantity', 'order qty', 'qty ordered', 'ordering qty',
+      'qty to order', 'quantity to order', 'total quantity', 'total qty',
+      'net quantity', 'net qty', 'gross quantity', 'gross qty',
+      'requisition qty', 'requisition quantity', 'indent qty', 'indent quantity',
+      'demand qty', 'demand quantity', 'supply qty', 'supply quantity',
+      'quantity to supply', 'delivery qty', 'delivery quantity', 'qty to deliver',
+      'ship qty', 'shipped qty', 'shipping qty', 'r f q', 'rfq', 'rfq qty',
+      'rfq quantity', 'quantity rfq', 'qty rfq', 'r f q qty', 'r f q quantity',
+      'no of units', 'number of units', 'no of pcs', 'no of pieces',
+      'number of pieces', 'no of packs', 'no of cartons', 'nos required',
+      'qty in kg', 'qty kg', 'qty kgs', 'quantity in kg', 'qty in pcs',
+      'qty pcs', 'quantity in pcs', 'qty in units', 'order', 'ordered',
+      'cantidad', 'quantite', 'quantidade', 'menge', 'anzahl', 'aantal',
+      'quantita', 'kwantiteit'
+    ],
+    generic: [
+      'qnty', 'qnt', 'q ty', 'req', 'reqd', 'required', 'requirement', 'request',
+      'requested', 'nos', 'no s', 'count', 'pcs', 'pieces', 'volume', 'vol',
+      'units required', 'needed', 'need'
+    ],
+    phrases: [
+      'quantity', 'qty', 'rfq', 'r f q', 'required', 'requested', 'ordered',
+      'quantite', 'cantidad', 'quantidade', 'menge', 'no of'
+    ],
+    weak: [
+      /(^|\s)(qty|qnty|qnt|quantit|rfq|req|reqd|required|nos|count|pcs|pieces)(\s|$)/,
+      /(^|\s)r f q(\s|$)/
+    ],
+    reject: [
+      /(^|\s)(price|prices|pricing|cost|costs|rate|rates|value|amount|usd|eur|gbp|aed|sar|sgd|currency|discount|vat|tax|remark|remarks|comment|comments|note|notes|date|code|codes|sku|barcode|ref|reference|supplier|vendor|brand|origin|status|balance|stock on board|rob)(\s|$)/,
+      /(^|\s)(pack size|packing size|packaging|packing)(\s|$)/,
+      /(^|\s)per\s+(unit|units|uom|pack|packet|carton|cartons|ctn|box|case|kg|kgs|g|gr|ltr|lt|l|ml|pc|pcs|piece|pieces)(\s|$)/
+    ]
+  },
+  unit: {
+    exact: [
+      'unit of measure', 'units of measure', 'unit of measures',
+      'unit of measurement', 'units of measurement', 'unit of issue',
+      'unit measure', 'unit measurement', 'measurement unit', 'measure unit',
+      'uom', 'u o m', 'u m', 'u of m', 'unit uom', 'uom unit', 'uom code',
+      'base unit', 'base uom', 'order unit', 'ordering unit', 'purchase unit',
+      'sales unit', 'selling unit', 'supply unit', 'issue unit', 'stock unit',
+      'packing unit', 'pack unit', 'unit pack', 'unit type', 'type of unit',
+      'unit size', 'size unit', 'pack size', 'packing size', 'package size',
+      'packing', 'packaging', 'package', 'pack type', 'packing type',
+      'qty unit', 'quantity unit', 'unit of qty', 'unit of quantity',
+      'measure', 'measurement', 'unidad', 'unidad de medida', 'unidade',
+      'einheit', 'mengeneinheit', 'unite', 'unite de mesure', 'medida',
+      'misura', 'unita'
+    ],
+    generic: [
+      'unit', 'units', 'meas', 'size', 'pack', 'packs', 'packet', 'packets',
+      'per', 'in', 'uom s'
+    ],
+    phrases: [
+      'unit of measure', 'unit of', 'uom', 'unit', 'units', 'measure',
+      'measurement', 'packing', 'packaging', 'pack size', 'unidad', 'einheit'
+    ],
+    weak: [
+      /(^|\s)(uom|unit|units|u m|measure|measurement|packing|packaging|pack|size)(\s|$)/
+    ],
+    reject: [
+      /(^|\s)(price|prices|pricing|cost|costs|rate|rates|value|amount|total|subtotal|usd|eur|gbp|aed|sar|sgd|currency|discount|vat|tax|date|code|remark|remarks|comment|comments|note|notes)(\s|$)/
+    ]
+  }
 };
+
+const REQUISITION_ROLE_PRIORITY = { description: 0, quantity: 1, unit: 2 };
+const REQUISITION_HEADER_SCAN_ROWS = 60;
 
 const ATHENA_PRICE_LIST_HEADERS = {
   product: ['standard product name', 'product name', 'description2', 'description'],
@@ -87,6 +214,8 @@ const APPROXIMATE_PIECE_WEIGHT_OVERRIDES = {
 
 function normalizeHeader(value) {
   return String(value ?? '')
+    .normalize('NFKD')
+    .replace(/\p{Diacritic}/gu, '')
     .trim()
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, ' ')
@@ -472,16 +601,112 @@ function getHeaderIndex(headerRow, aliases) {
   return headerRow.findIndex((cell) => aliases.includes(normalizeHeader(cell)));
 }
 
+// Score how strongly a single normalized header cell matches one column role.
+// Higher is a more confident match; 0 means "no signal"; negative means the
+// cell clearly belongs to a different column and must not be picked for this role.
+function scoreHeaderCellForRole(normalizedCell, role) {
+  const cell = String(normalizedCell || '').trim();
+  if (!cell) {
+    return 0;
+  }
+
+  const rules = REQUISITION_COLUMN_RULES[role];
+  if (!rules) {
+    return 0;
+  }
+
+  if (Array.isArray(rules.reject) && rules.reject.some((pattern) => pattern.test(cell))) {
+    return -100;
+  }
+
+  if (Array.isArray(rules.exact) && rules.exact.includes(cell)) {
+    return 100;
+  }
+
+  if (Array.isArray(rules.generic) && rules.generic.includes(cell)) {
+    return 70;
+  }
+
+  if (Array.isArray(rules.phrases)) {
+    for (const phrase of rules.phrases) {
+      const pattern = new RegExp(`(^|\\s)${phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\s|$)`);
+      if (pattern.test(cell)) {
+        return 45;
+      }
+    }
+  }
+
+  if (Array.isArray(rules.weak) && rules.weak.some((pattern) => pattern.test(cell))) {
+    return 20;
+  }
+
+  return 0;
+}
+
+// Assign header columns to the description/quantity/unit roles for a single row.
+// Each cell is scored for every role, then roles claim their best-scoring column
+// greedily (description first) so a shared word like "unit" can't be stolen from
+// the column that matches it more specifically. Returns the resolved indexes plus
+// a confidence score, or null when the row isn't a usable header.
+function resolveRequisitionColumns(row) {
+  const normalized = row.map(normalizeHeader);
+  const roles = Object.keys(REQUISITION_ROLE_PRIORITY)
+    .sort((a, b) => REQUISITION_ROLE_PRIORITY[a] - REQUISITION_ROLE_PRIORITY[b]);
+
+  const candidates = {};
+  for (const role of roles) {
+    candidates[role] = normalized
+      .map((cell, index) => ({ index, score: scoreHeaderCellForRole(cell, role) }))
+      .filter((entry) => entry.score > 0)
+      .sort((a, b) => b.score - a.score || a.index - b.index);
+  }
+
+  const assigned = {};
+  const usedIndexes = new Set();
+  for (const role of roles) {
+    const pick = candidates[role].find((entry) => !usedIndexes.has(entry.index));
+    if (pick) {
+      assigned[role] = pick;
+      usedIndexes.add(pick.index);
+    }
+  }
+
+  if (assigned.description == null || assigned.quantity == null || assigned.unit == null) {
+    return null;
+  }
+
+  return {
+    descriptionIndex: assigned.description.index,
+    quantityIndex: assigned.quantity.index,
+    unitIndex: assigned.unit.index,
+    score: assigned.description.score + assigned.quantity.score + assigned.unit.score
+  };
+}
+
+// Scan the first rows and keep the highest-confidence header row. Scanning past the
+// first match lets a strong real header win over an early weak/decoy row (titles,
+// vessel info, "R.F.Q." banners) that happens to contain a stray keyword.
+function findRequisitionHeader(rows, maxScanRows = REQUISITION_HEADER_SCAN_ROWS) {
+  let best = null;
+
+  const scanLimit = Math.min(rows.length, maxScanRows);
+  for (let index = 0; index < scanLimit; index += 1) {
+    const resolved = resolveRequisitionColumns(rows[index]);
+    if (!resolved) {
+      continue;
+    }
+
+    if (!best || resolved.score > best.score) {
+      best = { index, ...resolved };
+    }
+  }
+
+  return best;
+}
+
 function findRequisitionHeaderRow(rows) {
-  return rows.findIndex((row) => {
-    const normalized = row.map(normalizeHeader);
-
-    const hasDescription = normalized.some((cell) => REQUISITION_HEADER_ALIASES.description.includes(cell));
-    const hasQuantity = normalized.some((cell) => REQUISITION_HEADER_ALIASES.quantity.includes(cell));
-    const hasUnit = normalized.some((cell) => REQUISITION_HEADER_ALIASES.unit.includes(cell));
-
-    return hasDescription && hasQuantity && hasUnit;
-  });
+  const header = findRequisitionHeader(rows);
+  return header ? header.index : -1;
 }
 
 function isSubtotalOrTotalDescription(description) {
@@ -703,16 +928,13 @@ export async function parseRequisitionFile(filePath, originalFileName = '') {
     throw new Error('The uploaded requisition file is empty.');
   }
 
-  const headerRowIndex = findRequisitionHeaderRow(rows);
-  if (headerRowIndex < 0) {
-    throw new Error('No item header row found in file. Expected DESCRIPTION/ITEM, QTY/QUANTITY, and UNIT/UOM columns.');
+  const header = findRequisitionHeader(rows);
+  if (!header) {
+    throw new Error('No item header row found in file. Expected an item/description column (e.g. DESCRIPTION, ITEM, PRODUCT NAME), a quantity column (e.g. QTY, QUANTITY, R.F.Q.), and a unit column (e.g. UNIT, UOM, PACKING).');
   }
 
-  const headerRow = rows[headerRowIndex];
-  const descriptionIndex = getHeaderIndex(headerRow, REQUISITION_HEADER_ALIASES.description);
-  const quantityIndex = getHeaderIndex(headerRow, REQUISITION_HEADER_ALIASES.quantity);
-  const unitIndex = getHeaderIndex(headerRow, REQUISITION_HEADER_ALIASES.unit);
-  const dataRows = rows.slice(headerRowIndex + 1);
+  const { descriptionIndex, quantityIndex, unitIndex } = header;
+  const dataRows = rows.slice(header.index + 1);
 
   const items = [];
   for (const row of dataRows) {

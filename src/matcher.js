@@ -21,9 +21,12 @@ function normalizeText(value) {
     .replace(/\begg\s*plats?\b/g, ' aubergine ')
     .replace(/\begg[\s-]*plants?\b/g, ' aubergine ')
     .replace(/\btanger(?:ines?|ins?)\b/g, ' mandarin ')
+    .replace(/\b(?:clementine|satsuma)s?\b/g, ' mandarin ')
     .replace(/\b(?:bok|bak|pak)\s*[- ]?cho(?:i|y)\b/g, ' pak choi ')
-    .replace(/\bch(?:i|ic)nese\s*cabbages?\b/g, ' chinese leaf ')
-    .replace(/\bch(?:i|ic)nese\s*leaves\b/g, ' chinese leaf ')
+    .replace(/\bch(?:i|ic)nese\s*cabbages?\b/g, ' cabbage chinese ')
+    .replace(/\bch(?:i|ic)nese\s*leaves\b/g, ' cabbage chinese ')
+    .replace(/\bch(?:i|ic)nese\s*leaf\b/g, ' cabbage chinese ')
+    .replace(/\b(?:napa|nappa|wombok)\s*cabbages?\b/g, ' cabbage chinese ')
     .replace(/\bcheery\b/g, ' cherry ')
     .replace(/\bchery\b/g, ' cherry ')
     .replace(/\btomatos\b/g, ' tomato ')
@@ -39,6 +42,63 @@ function normalizeText(value) {
     .replace(/\bhoneydew\b/g, ' honeydew melon ')
     .replace(/\bhoney\s+melon[s]?\b/g, ' honeydew melon ')
     .replace(/\bsweet\s+melon[s]?\b/g, ' honeydew melon ')
+    // ---- Client wording → catalog synonyms (applied before token matching; order independent) ----
+    // Soft drinks & water
+    .replace(/\bcoca[\s-]*cola\b/g, ' coca cola ')
+    .replace(/\bcoke\b/g, ' coca cola ')
+    .replace(/\bdiet\s+cola\b/g, ' coca cola diet ')
+    .replace(/\b(?:seven|7)\s*up\b/g, ' 7up ')
+    .replace(/\bred\s*bull\b/g, ' red bull energy ')
+    .replace(/\b(?:sparkling|soda|fizzy|carbonated)\s+water\b/g, ' mineral water with gas ')
+    .replace(/\bstill\s+water\b/g, ' mineral water ')
+    .replace(/\bsquash\b/g, ' cordial ')
+    // Dairy / milk / cream
+    .replace(/\bcreamer\b/g, ' coffee mate ')
+    .replace(/\bphiladelphia\b/g, ' philadelphia cream cheese ')
+    .replace(/\bmozarella\b/g, ' mozzarella ')
+    .replace(/\bparmigiano\b/g, ' parmesan ')
+    // Coffee / tea
+    .replace(/\btea\s*bags?\b/g, ' tea bags ')
+    // Canned / dry goods
+    .replace(/\bgarbanzo(?:\s*beans?)?\b/g, ' chick peas ')
+    .replace(/\bchi[c]?k?\s*peas?\b/g, ' chick peas ')
+    .replace(/\bcornflour\b/g, ' corn flour ')
+    .replace(/\bcorn\s*starch\b/g, ' corn flour ')
+    .replace(/\bcornflakes?\b/g, ' corn flakes ')
+    .replace(/\bworcester(?:shire)?\b/g, ' worchestershire ')
+    .replace(/\btabasco\b/g, ' hot chilli tabasco ')
+    .replace(/\bket(?:ch|c)?up\b/g, ' ketchup ')
+    .replace(/\bmayo\b/g, ' mayonnaise ')
+    .replace(/\bmayonaise\b/g, ' mayonnaise ')
+    .replace(/\baubergines?\b/g, ' aubergine ')
+    // Pasta / noodles
+    .replace(/\bnoodle[s]?\b/g, ' noodles ')
+    .replace(/\bvermicelli\b/g, ' vermicelli noodles ')
+    // Fresh vegetables
+    .replace(/\bcourgettes?\b/g, ' zuchini ')
+    .replace(/\bzucchinis?\b/g, ' zuchini ')
+    .replace(/\bcapsicums?\b/g, ' bell pepper ')
+    .replace(/\bsweet\s+peppers?\b/g, ' bell pepper ')
+    .replace(/\bbrinjals?\b/g, ' aubergine ')
+    .replace(/\b(?:lady'?s?\s*finger|bhindi|okra)s?\b/g, ' okra ')
+    .replace(/\bscallions?\b/g, ' spring onion ')
+    .replace(/\bcilantro\b/g, ' coriander ')
+    .replace(/\bdhania\b/g, ' coriander ')
+    .replace(/\bbeets?\b/g, ' beetroot ')
+    .replace(/\bmange\s*touts?\b/g, ' snow peas ')
+    // Fresh fruit
+    .replace(/\bpaw\s*paws?\b/g, ' papaya ')
+    .replace(/\bcanteloupe[s]?\b/g, ' cantaloupe ')
+    .replace(/\brock\s*melons?\b/g, ' cantaloupe melon ')
+    .replace(/\bmusk\s*melons?\b/g, ' honeydew melon ')
+    // Meat / fish
+    .replace(/\bshrimps?\b/g, ' prawns ')
+    .replace(/\bcalamari\b/g, ' squid ')
+    .replace(/\bsea\s*bass\b/g, ' seabass ')
+    .replace(/\bsea\s*food\b/g, ' seafood ')
+    .replace(/\b(?:ground|minced)\s+beef\b/g, ' beef mince ')
+    .replace(/\b(?:ground|minced)\s+lamb\b/g, ' lamb mince ')
+    .replace(/\bminced\b/g, ' mince ')
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -67,11 +127,21 @@ function normalizeToken(token) {
   return token;
 }
 
+// Packaging / measurement fragments that survive digit-stripping (e.g. "6X2.6KG" → "kg").
+// They carry no product meaning and must never influence matching scores.
+const UNIT_FRAGMENT_TOKENS = new Set([
+  'kg', 'kgs', 'kilo', 'kilos', 'kilogram', 'kilograms',
+  'g', 'gr', 'gm', 'gms', 'gram', 'grams', 'mg',
+  'ml', 'cl', 'lt', 'ltr', 'ltrs', 'liter', 'liters', 'litre', 'litres',
+  'pc', 'pcs', 'pce', 'pkt', 'pkts', 'no', 'nos', 'cs', 'ctn', 'ctns',
+  'oz', 'lb', 'lbs', 'pk', 'pks', 'bch', 'pr', 'pair', 'inch'
+]);
+
 function tokenize(value) {
   const tokens = cleanProductText(value)
     .split(' ')
     .map((token) => normalizeToken(token.trim()))
-    .filter((token) => token.length > 1);
+    .filter((token) => token.length > 1 && !UNIT_FRAGMENT_TOKENS.has(token));
 
   const meaningfulTokens = tokens.filter((token) => !QUALIFIER_TOKENS.has(token));
   return meaningfulTokens.length ? meaningfulTokens : tokens;
@@ -81,7 +151,7 @@ function tokenizeRaw(value) {
   return cleanProductText(value)
     .split(' ')
     .map((token) => normalizeToken(token.trim()))
-    .filter((token) => token.length > 1);
+    .filter((token) => token.length > 1 && !UNIT_FRAGMENT_TOKENS.has(token));
 }
 
 function uniqueTokens(values) {
@@ -206,50 +276,53 @@ const PRODUCE_STYLE_TOKENS = new Set([
 const FORCED_CATALOG_OVERRIDES = [
   // --- Soft drinks ---
   // Diet cola / coke (most specific first)
-  { test: (n) => /\bdiet\b/.test(n) && /\b(?:coca\s*cola|coke|cola)\b/.test(n), key: 'ATH-DRK008' },
+  { test: (n) => /\bdiet\b/.test(n) && /\b(?:coca\s*cola|coke|cola)\b/.test(n), key: 'ATH-DRK008', expect: /cola/ },
   // Bottled cola / coke
-  { test: (n) => /\b(?:coca\s*cola|coke|cola)\b/.test(n) && /\b(?:btl|bottle)\b/.test(n), key: 'ATH-DRK005' },
+  { test: (n) => /\b(?:coca\s*cola|coke|cola)\b/.test(n) && /\b(?:btl|bottle)\b/.test(n), key: 'ATH-DRK005', expect: /cola/ },
   // Canned cola / coke (default — no bottle, no diet)
-  { test: (n) => /\b(?:coca\s*cola|coke|cola)\b/.test(n), exclude: /\b(?:btl|bottle|diet)\b/, key: 'ATH-DRK007' },
+  { test: (n) => /\b(?:coca\s*cola|coke|cola)\b/.test(n), exclude: /\b(?:btl|bottle|diet)\b/, key: 'ATH-DRK007', expect: /cola/ },
   // Fanta lemon can
-  { test: (n) => /\bfanta\b/.test(n) && /\blemon\b/.test(n), exclude: /\b(?:btl|bottle)\b/, key: 'ATH-DRK011' },
+  { test: (n) => /\bfanta\b/.test(n) && /\blemon\b/.test(n), exclude: /\b(?:btl|bottle)\b/, key: 'ATH-DRK011', expect: /fanta/ },
   // Fanta orange can (default — not bottled, not lemon)
-  { test: (n) => /\bfanta\b/.test(n), exclude: /\b(?:btl|bottle|lemon)\b/, key: 'ATH-DRK012' },
+  { test: (n) => /\bfanta\b/.test(n), exclude: /\b(?:btl|bottle|lemon)\b/, key: 'ATH-DRK012', expect: /fanta/ },
   // Sprite bottled
-  { test: (n) => /\bsprite\b/.test(n) && /\b(?:btl|bottle)\b/.test(n), key: 'ATH-DRK013' },
+  { test: (n) => /\bsprite\b/.test(n) && /\b(?:btl|bottle)\b/.test(n), key: 'ATH-DRK013', expect: /sprite/ },
   // Sprite can (default)
-  { test: (n) => /\bsprite\b/.test(n), exclude: /\b(?:btl|bottle)\b/, key: 'ATH-DRK014' },
+  { test: (n) => /\bsprite\b/.test(n), exclude: /\b(?:btl|bottle)\b/, key: 'ATH-DRK014', expect: /sprite/ },
   // --- Fresh vegetables ---
   // Aubergine / eggplant → EGGPLANT 12XBOX (not roasted)
-  { test: (n) => /\b(?:aubergine|eggplant)[s]?\b/.test(n), exclude: /\broasted\b/, key: 'ATH-FVG027' },
+  { test: (n) => /\b(?:aubergine|eggplant)[s]?\b/.test(n), exclude: /\broasted\b/, key: 'ATH-FVG027', expect: /eggplant|aubergine/ },
   // Cauliflower → CAULIFLOWER 8XBOX (not frozen)
-  { test: (n) => /\bcauliflower[s]?\b/.test(n), exclude: /\bfrozen\b/, key: 'ATH-FVG017' },
+  { test: (n) => /\bcauliflower[s]?\b/.test(n), exclude: /\bfrozen\b/, key: 'ATH-FVG017', expect: /cauliflower/ },
   // Spring / green / fresh onion → SPRING ONIONS 12XBOX
-  { test: (n) => /\b(?:spring\s+onion|green\s+onion|fresh\s+onion)[s]?\b/.test(n), key: 'ATH-FVG058' },
+  { test: (n) => /\b(?:spring\s+onion|green\s+onion|fresh\s+onion)[s]?\b/.test(n), key: 'ATH-FVG058', expect: /onion/ },
   // Fresh tomato → TOMATOES 6KG (exclude cherry and all processed/canned forms)
   {
     test: (n) => /\btomato(?:es)?\b/.test(n),
-    exclude: /\b(?:cherry|paste|puree|juice|ketchup|soup|canned|tinned|chopped|peeled|pilchard|sardine|mackerel|sauce)\b/,
-    key: 'ATH-FVG062'
+    exclude: /\b(?:cherry|paste|puree|juice|ketchup|ketcup|soup|canned|tinned|chopped|peeled|pilchards?|sardines?|mackerels?|pilchard|sauce)\b/,
+    key: 'ATH-FVG062',
+    expect: /tomato/
   },
   // --- Fresh fruit ---
   // Yellow pear → PEARS YELLOW 12XBOX (most specific, before the green-pear default)
-  { test: (n) => /\byellow\b/.test(n) && /\bpear[s]?\b/.test(n), key: 'ATH-FFR019' },
+  { test: (n) => /\byellow\b/.test(n) && /\bpear[s]?\b/.test(n), key: 'ATH-FFR019', expect: /pear/ },
   // Pear → PEARS GREEN 70XBOX (not yellow / syrup / canned)
-  { test: (n) => /\bpear[s]?\b/.test(n), exclude: /\b(?:yellow|syrup|canned|tinned|juice)\b/, key: 'ATH-FFR018' },
+  { test: (n) => /\bpear[s]?\b/.test(n), exclude: /\b(?:yellow|syrup|canned|tinned|juice)\b/, key: 'ATH-FFR018', expect: /pear/ },
   // Fresh pineapple → PINEAPPLE 8XBOX (not juice / frozen / canned / sliced)
   {
     test: (n) => /\bpineapple[s]?\b/.test(n),
-    exclude: /\b(?:juice|frozen|chunk|slice|canned|tinned)\b/,
-    key: 'ATH-FFR020'
+    exclude: /\b(?:juice|frozen|chunks?|slices?|sliced|canned|tinned|syrup)\b/,
+    key: 'ATH-FFR020',
+    expect: /pineapple/
   },
   // Watermelon → WATER MELON 5XBOX (note: normalizeText converts 'watermelon' → 'water melon')
-  { test: (n) => /\bwater\s*melon[s]?\b/.test(n), key: 'ATH-FFR023' },
+  { test: (n) => /\bwater\s*melon[s]?\b/.test(n), key: 'ATH-FFR023', expect: /water\s*melon/ },
   // Honeydew / sweet melon / melon → HONEYDEW MELON 7XBOX (not watermelon / cantaloupe)
   {
     test: (n) => /\b(?:honeydew\s+melon|honeydew|honey\s+melon|sweet\s+melon|melon)[s]?\b/.test(n),
     exclude: /\b(?:water|cantaloupe)\b/,
-    key: 'ATH-FFR011'
+    key: 'ATH-FFR011',
+    expect: /melon/
   }
 ];
 
@@ -342,10 +415,13 @@ function buildFreshProduceTokenSet(products) {
   );
 }
 
-function buildMatchContext(item, freshProduceTokens) {
+function buildMatchContext(item, freshProduceTokens, stats = null) {
   const cleanedText = cleanProductText(item.originalItem);
-  const matchTokens = uniqueTokens([cleanedText]);
-  const rawTokens = uniqueRawTokens([item.originalItem]);
+  const correct = stats && typeof stats.correct === 'function'
+    ? (token) => stats.correct(token)
+    : (token) => token;
+  const matchTokens = [...new Set(uniqueTokens([cleanedText]).map(correct))];
+  const rawTokens = [...new Set(uniqueRawTokens([item.originalItem]).map(correct))];
   const request = resolveCustomerRequest(item);
   const explicitProcessedRequest = hasAnyToken(rawTokens, PRODUCE_STYLE_TOKENS);
   const produceIntentTokens = matchTokens.filter((token) => freshProduceTokens.has(token));
@@ -354,6 +430,7 @@ function buildMatchContext(item, freshProduceTokens) {
 
   return {
     cleanedText,
+    correctedText: matchTokens.join(' ') || cleanedText,
     matchTokens,
     rawTokens,
     request,
@@ -561,8 +638,10 @@ function tryBusinessRuleMatch(context, products) {
     }
   }
 
-  // Garlic priority
-  if (hasToken(/\bgarlic\b/)) {
+  // Garlic priority. Only when garlic is the subject — not when it is a modifier inside a
+  // composite product name (e.g. "chilli garlic stir fry sauce", "garlic bread/butter/mayo").
+  const garlicIsModifier = /\b(?:sauce|paste|stir|fry|bread|butter|mayo|mayonnaise|dip|dressing|puree|oil|salt|croutons?|naan|baguette|pizza)\b/.test(normalizedRequest);
+  if (hasToken(/\bgarlic\b/) && !garlicIsModifier) {
     if (hasToken(/\bpowder\b/)) {
       const product = findProductByRule(products, [/\bgarlic\b/, /\bpowder\b/]);
       if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: garlic powder' };
@@ -586,34 +665,17 @@ function tryBusinessRuleMatch(context, products) {
   }
 
   // Pineapple — only match to fresh PINEAPPLE 8XBOX; leave juice/frozen/canned to normal matching
-  if (hasToken(/\bpine\s*apple\b|\bpineapple\b/) && !hasToken(/\bjuice\b|\bfrozen\b|\bcanned\b|\btinned\b|\bchunk\b|\bslice\b/)) {
+  if (hasToken(/\bpine\s*apple\b|\bpineapple\b/) && !hasToken(/\bjuice\b|\bfrozen\b|\bcanned\b|\btinned\b|\bchunks?\b|\bslices?\b|\bsliced\b|\bsyrup\b/)) {
     const product = findProductByRule(products, [/\bpine\s*apple\b|\bpineapple\b/], [], [/\b8\s*x\s*box\b|\b8xbox\b/]);
     if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: pineapple -> 8xbox' };
   }
 
-  // Pears -> avoid canned halves
-  if (hasToken(/\bpear\b|\bpears\b/)) {
-    const product = findProductByRule(
-      products,
-      [/\bpeas\b|\bpear\b/],
-      [/\bhalves\b|\bhalf\b|\bcanned\b|\bcocktail\b/],
-      [/\bpeas\s*green\b|\bgreen\s*peas\b|\bgreen\b/]
-    );
-    if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: pears -> fresh green pears' };
-  }
+  // (Fresh pear default is handled by FORCED_CATALOG_OVERRIDES, which correctly excludes
+  // canned/syrup forms and does not conflate "peas" with "pears". Explicit canned pear
+  // halves fall through to normal matching.)
 
-  // Strawberries default to 135g unless specifically requested
-  if (hasToken(/\bstrawberry\b|\bstrawberries\b/)) {
-    const hasSpecificPack = hasToken(/\b\d+(?:\.\d+)?\s*(kg|g|gram|grams|box|boxes|tray|trays|pack|packs|pkt|btl|bottle|bottles|pcs|pc)\b/);
-    if (!hasSpecificPack) {
-      const product = products.find((candidate) => {
-        const name = normalizeText(candidate.productName || '');
-        return /\bstrawberry\b/.test(name) && /\b135\s*g\b|\b135g\b/.test(name);
-      });
-      if (product) return { product, score: 1, confidence: 'high', reason: 'business rule: strawberries default' };
-      return null;
-    }
-  }
+  // (Bare "strawberries" → 135g default is handled earlier in matchProduct, before
+  // business rules, so it can distinguish strawberry milk/jam/syrup/ice cream.)
 
   // Long-life milk / UHT milk
   if (hasToken(/\bmilk\b/) && hasToken(/\bll\b|\blong\s*life\b|\buht\b/)) {
@@ -723,6 +785,327 @@ function getSharedTokens(leftTokens, rightTokens) {
   return [...new Set(leftTokens.filter((token) => rightTokenSet.has(token)))];
 }
 
+// Bounded Levenshtein edit distance. Returns a number > maxDistance as soon as it
+// is certain the true distance exceeds maxDistance (keeps per-token typo correction cheap).
+function boundedEditDistance(a, b, maxDistance) {
+  const lenA = a.length;
+  const lenB = b.length;
+  if (Math.abs(lenA - lenB) > maxDistance) {
+    return maxDistance + 1;
+  }
+
+  let previous = new Array(lenB + 1);
+  let current = new Array(lenB + 1);
+  for (let j = 0; j <= lenB; j += 1) {
+    previous[j] = j;
+  }
+
+  for (let i = 1; i <= lenA; i += 1) {
+    current[0] = i;
+    let rowMin = current[0];
+    const charA = a.charCodeAt(i - 1);
+
+    for (let j = 1; j <= lenB; j += 1) {
+      const cost = charA === b.charCodeAt(j - 1) ? 0 : 1;
+      current[j] = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost
+      );
+      if (current[j] < rowMin) {
+        rowMin = current[j];
+      }
+    }
+
+    if (rowMin > maxDistance) {
+      return maxDistance + 1;
+    }
+
+    [previous, current] = [current, previous];
+  }
+
+  return previous[lenB];
+}
+
+// Build catalog-wide statistics used by the smart matcher:
+//  - idf:    inverse document frequency per token (distinctive words weigh more)
+//  - vocab:  the set of real catalog tokens, grouped by first letter for fast typo lookup
+//  - correct: maps an unknown/misspelled request token to its closest catalog token
+function buildCatalogStats(products) {
+  const documentFrequency = new Map();
+  const tokenFrequency = new Map();
+  const knownTokens = new Set();
+  const totalDocuments = Math.max(products.length, 1);
+
+  for (const product of products) {
+    const productTokens = new Set([
+      ...(Array.isArray(product.nameTokens) ? product.nameTokens : []),
+      ...(Array.isArray(product.keywordTokens) ? product.keywordTokens : [])
+    ]);
+
+    for (const token of productTokens) {
+      documentFrequency.set(token, (documentFrequency.get(token) || 0) + 1);
+    }
+
+    // Frequency + known-word set also include raw tokens (qualifiers/style words like
+    // "chopped", "smoked") so typo-correction recognises them and leaves them intact.
+    for (const token of [
+      ...(product.nameTokens || []),
+      ...(product.keywordTokens || []),
+      ...(product.rawMatchTokens || [])
+    ]) {
+      tokenFrequency.set(token, (tokenFrequency.get(token) || 0) + 1);
+      knownTokens.add(token);
+    }
+  }
+
+  const idf = new Map();
+  let idfSum = 0;
+  for (const [token, df] of documentFrequency.entries()) {
+    const value = Math.log(1 + totalDocuments / (1 + df));
+    idf.set(token, value);
+    idfSum += value;
+  }
+
+  const defaultIdf = Math.log(1 + totalDocuments);
+  const averageIdf = documentFrequency.size ? idfSum / documentFrequency.size : defaultIdf;
+
+  const vocabularyByLetter = new Map();
+  for (const token of knownTokens) {
+    if (token.length < 3) {
+      continue;
+    }
+    const bucketKey = token[0];
+    if (!vocabularyByLetter.has(bucketKey)) {
+      vocabularyByLetter.set(bucketKey, []);
+    }
+    vocabularyByLetter.get(bucketKey).push(token);
+  }
+
+  const correctionCache = new Map();
+
+  function correct(token) {
+    if (!token || token.length < 5 || knownTokens.has(token)) {
+      return token;
+    }
+    if (correctionCache.has(token)) {
+      return correctionCache.get(token);
+    }
+
+    const maxDistance = token.length >= 8 ? 2 : 1;
+    // Only consider candidates that start with the same or an adjacent first letter
+    // (typos rarely change the first character), keeping the search small.
+    const buckets = [vocabularyByLetter.get(token[0])].filter(Boolean);
+    let best = token;
+    let bestDistance = maxDistance + 1;
+    let bestFrequency = 0;
+
+    for (const bucket of buckets) {
+      for (const candidate of bucket) {
+        if (Math.abs(candidate.length - token.length) > maxDistance) {
+          continue;
+        }
+        const distance = boundedEditDistance(token, candidate, maxDistance);
+        if (distance > maxDistance) {
+          continue;
+        }
+        const frequency = tokenFrequency.get(candidate) || 0;
+        if (distance < bestDistance || (distance === bestDistance && frequency > bestFrequency)) {
+          best = candidate;
+          bestDistance = distance;
+          bestFrequency = frequency;
+        }
+      }
+    }
+
+    correctionCache.set(token, best);
+    return best;
+  }
+
+  return {
+    idf,
+    defaultIdf,
+    averageIdf,
+    getIdf(token) {
+      return idf.get(token) ?? defaultIdf;
+    },
+    correct
+  };
+}
+
+// Cosine-style similarity between the request and a product's name, weighted by IDF.
+// Word order is irrelevant (sets, not sequences); distinctive words dominate; and a
+// high score requires the request and the product name to overlap in BOTH directions,
+// so the most exact catalog item wins.
+function scoreSmartMatch(context, product, stats) {
+  const requestTokens = context.matchTokens;
+  if (!requestTokens.length) {
+    return null;
+  }
+
+  const nameTokens = Array.isArray(product.nameTokens) ? product.nameTokens : [];
+  if (!nameTokens.length) {
+    return null;
+  }
+
+  const nameSet = new Set(nameTokens);
+  const keywordSet = new Set(Array.isArray(product.keywordTokens) ? product.keywordTokens : []);
+
+  let dot = 0;
+  const shared = [];
+  for (const token of requestTokens) {
+    if (nameSet.has(token)) {
+      const weight = stats.getIdf(token);
+      dot += weight * weight;
+      shared.push(token);
+    }
+  }
+
+  if (!shared.length) {
+    // No name overlap — allow a keyword-only rescue but at a heavy discount.
+    let keywordOnly = 0;
+    for (const token of requestTokens) {
+      if (keywordSet.has(token)) {
+        keywordOnly += stats.getIdf(token);
+      }
+    }
+    if (keywordOnly <= 0) {
+      return null;
+    }
+    return { cosine: 0, shared, score: 0.18 * keywordOnly, coverage: 0 };
+  }
+
+  let requestWeight = 0;
+  let sharedWeight = 0;
+  for (const token of requestTokens) {
+    const weight = stats.getIdf(token);
+    requestWeight += weight;
+    if (nameSet.has(token)) {
+      sharedWeight += weight;
+    }
+  }
+
+  const requestNorm = Math.sqrt(requestTokens.reduce((sum, token) => {
+    const weight = stats.getIdf(token);
+    return sum + weight * weight;
+  }, 0));
+  const nameNorm = Math.sqrt(nameTokens.reduce((sum, token) => {
+    const weight = stats.getIdf(token);
+    return sum + weight * weight;
+  }, 0));
+
+  const cosine = requestNorm && nameNorm ? dot / (requestNorm * nameNorm) : 0;
+  // Fraction of the request's meaning that the product name accounts for. Covering ALL
+  // requested words (peanut AND butter) must beat covering a subset (butter only).
+  const requestCoverage = requestWeight ? sharedWeight / requestWeight : 0;
+
+  let keywordBonus = 0;
+  for (const token of requestTokens) {
+    if (!nameSet.has(token) && keywordSet.has(token)) {
+      keywordBonus += stats.getIdf(token);
+    }
+  }
+  const bonus = requestNorm ? keywordBonus / requestNorm : 0;
+
+  // Raw (unfiltered) qualifier/style words like "chopped", "whole", "smoked", "diet"
+  // are dropped from the main token set, but when both the request and the product name
+  // carry the same one it disambiguates near-identical SKUs.
+  let rawQualifierHits = 0;
+  const requestRaw = Array.isArray(context.rawTokens) ? context.rawTokens : [];
+  const productRaw = new Set(Array.isArray(product.rawMatchTokens) ? product.rawMatchTokens : []);
+  const sharedSet = new Set(shared);
+  for (const token of requestRaw) {
+    if (!sharedSet.has(token) && productRaw.has(token)) {
+      rawQualifierHits += 1;
+    }
+  }
+
+  // Fraction of the product name's words that were matched. Rewards the product whose
+  // name is "mostly the request" (Peanut Butter spread) over one where the request is a
+  // minor flavour note (Kind Peanut Butter Dark Chocolate bar).
+  const nameCountCoverage = nameTokens.length ? shared.length / nameTokens.length : 0;
+
+  const score = requestCoverage * (0.34 + 0.36 * cosine + 0.3 * nameCountCoverage)
+    + 0.1 * bonus
+    + 0.05 * rawQualifierHits;
+
+  return {
+    cosine,
+    shared,
+    coverage: shared.length / nameTokens.length,
+    score
+  };
+}
+
+function findSmartMatch(context, products, stats) {
+  if (!stats) {
+    return null;
+  }
+
+  let best = null;
+
+  for (const product of products) {
+    const scored = scoreSmartMatch(context, product, stats);
+    if (!scored || scored.score <= 0) {
+      continue;
+    }
+
+    const hasDistinctiveShared = scored.shared.some((token) => (
+      !LOW_SIGNAL_TOKENS.has(token) && stats.getIdf(token) >= stats.averageIdf
+    ));
+
+    // Reject weak, non-distinctive overlaps (e.g. matching only on "fresh"/"white")
+    // unless the overall name similarity is already strong.
+    if (scored.cosine < 0.6 && !hasDistinctiveShared) {
+      continue;
+    }
+
+    if (scored.score < 0.28) {
+      continue;
+    }
+
+    const unitFit = scoreUnitFit(context.request, product);
+    const producePreference = scoreProducePreference(context, product);
+
+    const candidate = {
+      product,
+      score: scored.score,
+      cosine: scored.cosine,
+      coverage: scored.coverage,
+      producePreference,
+      unitFit,
+      nameLength: (product.nameTokens || []).length,
+      confidence: scored.cosine >= 0.72 ? 'high' : (scored.cosine >= 0.46 ? 'medium' : 'low')
+    };
+
+    // Priority: textual similarity (exactness) → fresh-produce preference → name coverage
+    // → unit fit → shortest/most-specific name.
+    const better = !best
+      || candidate.score > best.score
+      || (candidate.score === best.score && candidate.producePreference > best.producePreference)
+      || (candidate.score === best.score && candidate.producePreference === best.producePreference && candidate.coverage > best.coverage)
+      || (candidate.score === best.score && candidate.producePreference === best.producePreference && candidate.coverage === best.coverage && candidate.unitFit > best.unitFit)
+      || (candidate.score === best.score && candidate.producePreference === best.producePreference && candidate.coverage === best.coverage && candidate.unitFit === best.unitFit && candidate.nameLength < best.nameLength);
+
+    if (better) {
+      best = candidate;
+    }
+  }
+
+  if (!best) {
+    return null;
+  }
+
+  return {
+    product: best.product,
+    score: best.score,
+    confidence: best.confidence,
+    reason: context.prefersFreshProduce && best.producePreference > 0
+      ? `smart match ${best.cosine.toFixed(2)}; preferred fresh produce alternative`
+      : `smart match ${best.cosine.toFixed(2)}`
+  };
+}
+
 const DEFAULT_FUZZY_THRESHOLD = 0.7;
 
 function resolveFuzzyThreshold(value) {
@@ -802,7 +1185,7 @@ function findKeywordMatch(context, products) {
   return bestMatch;
 }
 
-function createFuzzyMatcher(products, fuzzyThreshold, freshProduceTokens) {
+function createFuzzyMatcher(products, fuzzyThreshold, freshProduceTokens, stats = null) {
   const effectiveThreshold = resolveFuzzyThreshold(fuzzyThreshold);
   const fuse = new Fuse(
     products.map((product, index) => ({
@@ -825,12 +1208,12 @@ function createFuzzyMatcher(products, fuzzyThreshold, freshProduceTokens) {
   );
 
   return (item) => {
-    const context = buildMatchContext(item, freshProduceTokens);
+    const context = buildMatchContext(item, freshProduceTokens, stats);
     if (!context.cleanedText) {
       return null;
     }
 
-    const results = fuse.search(context.cleanedText, { limit: 8 });
+    const results = fuse.search(context.correctedText || context.cleanedText, { limit: 8 });
     if (!results.length) {
       return null;
     }
@@ -879,8 +1262,8 @@ function createFuzzyMatcher(products, fuzzyThreshold, freshProduceTokens) {
 
 
 // Custom yogurt matching logic
-function matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherOptions = {}) {
-  const context = buildMatchContext(item, freshProduceTokens);
+function matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherOptions = {}, stats = null) {
+  const context = buildMatchContext(item, freshProduceTokens, stats);
   context.originalItem = item.originalItem;
   const itemText = context.cleanedText;
   const requestedQty = context.request.customerQuantity;
@@ -891,20 +1274,37 @@ function matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherO
   for (const override of FORCED_CATALOG_OVERRIDES) {
     if (override.test(normalizedRequest) && (!override.exclude || !override.exclude.test(normalizedRequest))) {
       const forcedProduct = products.find((p) => p.catalogKey === override.key);
-      if (forcedProduct) {
-        return { product: forcedProduct, score: 1, confidence: 'high', reason: `forced match: ${override.key}` };
+      if (!forcedProduct) {
+        continue;
       }
+      // Safety: a hardcoded key can drift as the price list changes. Only honour the
+      // override if the target product's name actually matches the rule's intent;
+      // otherwise fall through to normal (smart) matching.
+      if (override.expect && !override.expect.test(normalizeText(forcedProduct.productName || ''))) {
+        continue;
+      }
+      return { product: forcedProduct, score: 1, confidence: 'high', reason: `forced match: ${override.key}` };
     }
   }
 
-  // Business constraint: strawberries should default to 135g SKU only.
-  // If the catalog does not contain that SKU, do not auto-match to milk/syrup/jam variants.
-  if (/\bstrawberry\b|\bstrawberries\b/.test(normalizedRequest)) {
-    const strawberry135 = products.find((product) => {
-      const name = normalizeText(product.productName || '');
-      return /\bstrawberry\b/.test(name) && /\b135\s*g\b|\b135g\b/.test(name);
-    });
-    if (!strawberry135) {
+  // Business constraint: a BARE "strawberries" request (the fresh fruit, no other product
+  // noun) defaults to the 135g SKU. Requests like "strawberry milk", "strawberry jam",
+  // "strawberry syrup", "strawberry ice cream" name a different product and fall through to
+  // normal matching. (Handles both singular and plural product names.)
+  const strawberryRe = /\bstrawberr(?:y|ies)\b/;
+  if (strawberryRe.test(normalizedRequest)) {
+    const otherAnchors = context.matchTokens.filter((token) => token !== 'strawberry');
+    const isBareStrawberry = otherAnchors.length === 0;
+    if (isBareStrawberry) {
+      const strawberry135 = products.find((product) => {
+        const name = normalizeText(product.productName || '');
+        return strawberryRe.test(name) && /\b135\s*g\b|\b135g\b/.test(name);
+      });
+      if (strawberry135) {
+        return { product: strawberry135, score: 1, confidence: 'high', reason: 'business rule: strawberries default 135g' };
+      }
+      // No fresh-strawberry SKU exists — send bare strawberry requests to manual review
+      // rather than mis-matching to a flavoured variant.
       return null;
     }
   }
@@ -973,7 +1373,22 @@ function matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherO
     return bakerySemanticMatch;
   }
 
+  // Smart, word-order-independent, IDF-weighted similarity match (primary general matcher).
+  const smartMatch = findSmartMatch(context, products, stats);
+
+  // Legacy token-overlap match kept as a safety net for edge cases the smart matcher skips.
   const keywordMatch = findKeywordMatch(context, products);
+
+  // Prefer whichever is more confident; on a tie prefer the smart match.
+  const confidenceOrder = { high: 3, medium: 2, low: 1 };
+  if (smartMatch && keywordMatch) {
+    const smartRank = confidenceOrder[smartMatch.confidence] || 0;
+    const keywordRank = confidenceOrder[keywordMatch.confidence] || 0;
+    return keywordRank > smartRank ? keywordMatch : smartMatch;
+  }
+  if (smartMatch) {
+    return smartMatch;
+  }
   if (keywordMatch) {
     return keywordMatch;
   }
@@ -1093,18 +1508,20 @@ export function prepareCatalog(priceList) {
 export function createMatchingEngine(products, additionalStrategies = [], options = {}) {
   const extraMatchers = additionalStrategies;
   const freshProduceTokens = buildFreshProduceTokenSet(products);
+  const catalogStats = buildCatalogStats(products);
   const matcherOptions = {
     enableBusinessRules: options.enableBusinessRules !== false
   };
   const fuzzyMatcher = createFuzzyMatcher(
     products,
     options.fuzzyThreshold ?? process.env.FUZZY_MATCH_THRESHOLD ?? DEFAULT_FUZZY_THRESHOLD,
-    freshProduceTokens
+    freshProduceTokens,
+    catalogStats
   );
 
   return {
     matchItem(item) {
-      const matchedProduct = matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherOptions);
+      const matchedProduct = matchProduct(item, products, fuzzyMatcher, freshProduceTokens, matcherOptions, catalogStats);
       const fallbackProduct = matchedProduct || extraMatchers
         .map((matcher) => matcher(item, products))
         .find(Boolean);
