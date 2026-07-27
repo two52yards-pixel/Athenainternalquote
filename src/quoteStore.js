@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import { S3Client, PutObjectCommand, GetObjectCommand, ListObjectsV2Command, DeleteObjectCommand } from '@aws-sdk/client-s3';
 import 'dotenv/config';
 
 const quotesRootDirectory = path.resolve(process.cwd(), 'logs', 'quotes');
@@ -57,6 +57,21 @@ async function fetchQuoteFromR2(scopeKey, quoteId) {
       console.warn('[quoteStore] R2 fetch failed:', err.message);
     }
     return null;
+  }
+}
+
+// Deleting the local file alone is not enough: restoreAllQuotesFromR2() runs on
+// every boot and would bring the quote straight back.
+async function deleteQuoteFromR2(scopeKey, quoteId) {
+  try {
+    const s3 = getR2Client();
+    if (!s3) return;
+    await s3.send(new DeleteObjectCommand({
+      Bucket: process.env.R2_BUCKET,
+      Key: `${R2_QUOTES_PREFIX}/${scopeKey}/${quoteId}.json`,
+    }));
+  } catch (err) {
+    console.warn('[quoteStore] R2 delete failed:', err.message);
   }
 }
 
@@ -363,7 +378,9 @@ export async function listQuotes(scopeKey) {
 // Scans every scope directory and returns all quotes tagged with their clientId.
 // Quotes in directories that don't match any known client ID are "orphaned".
 // =====================
-export async function listAllQuotes() {
+// `includeCostLines` adds the minimal per-line fields the admin panel needs to
+// price a quote against the master list. Admin-only — never forward these to a client.
+export async function listAllQuotes({ includeCostLines = false } = {}) {
   await fs.mkdir(quotesRootDirectory, { recursive: true });
 
   let entries;
@@ -411,7 +428,19 @@ export async function listAllQuotes() {
         createdAt: quote.createdAt,
         updatedAt: quote.updatedAt,
         quoteStatus: quote.quoteStatus || 'OPEN',
-        summary: quote.summary
+        summary: quote.summary,
+        ...(includeCostLines
+          ? {
+            costLines: (Array.isArray(quote.items) ? quote.items : []).map((item) => ({
+              matchedProductKey: item.matchedProductKey || '',
+              matchedProduct: item.matchedProduct || '',
+              supplyQuantity: Number(item.supplyQuantity) || 0,
+              status: item.status || '',
+              available: item.available,
+              isUnavailable: item.isUnavailable
+            }))
+          }
+          : {})
       });
     }
   }
@@ -428,6 +457,7 @@ export async function deleteQuote(scopeKey, quoteId) {
   ];
 
   let lastError = null;
+  let deletedLocally = false;
 
   for (const quotePath of candidatePaths) {
     if (!quotePath) {
@@ -436,7 +466,8 @@ export async function deleteQuote(scopeKey, quoteId) {
 
     try {
       await fs.unlink(quotePath);
-      return { ok: true };
+      deletedLocally = true;
+      break;
     } catch (error) {
       lastError = error;
       if (!(error && typeof error === 'object' && error.code === 'ENOENT')) {
@@ -445,7 +476,14 @@ export async function deleteQuote(scopeKey, quoteId) {
     }
   }
 
-  if (lastError && typeof lastError === 'object' && lastError.code === 'ENOENT') {
+  // Always clear the R2 backup — a quote left there reappears on the next boot.
+  // Legacy scopes were written under their raw key, current ones under the
+  // sanitized key, so both are cleared.
+  for (const key of new Set([rawScopeKey, safeScopeKey].filter(Boolean))) {
+    await deleteQuoteFromR2(key, quoteId);
+  }
+
+  if (!deletedLocally && lastError && typeof lastError === 'object' && lastError.code === 'ENOENT') {
     throw createNotFoundError('Quote not found. It may have already been removed.');
   }
 

@@ -17,7 +17,8 @@ import { buildExcelBuffer, buildPdfBuffer } from './exporters.js';
 import { loadPriceList, parseRequisitionFile } from './parser.js';
 import { applyManualSelection, createMatchingEngine, prepareCatalog, summarizeQuote } from './matcher.js';
 import { loadQuoteInsights } from './quoteInsights.js';
-import { listQuotes, loadQuote, saveQuote, listAllQuotes, restoreAllQuotesFromR2 } from './quoteStore.js';
+import { buildCostPriceIndex, buildQuoteCostSummary } from './costPricing.js';
+import { listQuotes, loadQuote, saveQuote, listAllQuotes, deleteQuote, restoreAllQuotesFromR2 } from './quoteStore.js';
 
 // =====================
 // PATH SETUP
@@ -81,6 +82,11 @@ const matcher = createMatchingEngine(catalog, [], {
   fuzzyThreshold: Number(process.env.FUZZY_MATCH_THRESHOLD || 0.7)
 });
 
+// Cost price is internal. Client-facing responses are served from `publicCatalog`,
+// which has it stripped; `catalog` keeps it for admin-only margin reporting.
+const publicCatalog = catalog.map(({ costPrice, ...product }) => product);
+const costPriceIndex = buildCostPriceIndex(catalog);
+
 let quoteInsights = await loadQuoteInsights(catalog);
 
 function getQuoteScopeKey(req) {
@@ -133,7 +139,7 @@ app.get('/api/health', (req, res) => {
 
 // MASTER PRODUCTS
 app.get('/api/master-products', (req, res) => {
-  res.json({ products: catalog });
+  res.json({ products: publicCatalog });
 });
 
 // QUOTE HISTORY
@@ -324,7 +330,10 @@ app.get('/r2/:key.xlsx', async (req, res) => {
 // GET /api/admin/quotes — all quotes across all clients, grouped by client
 app.get('/api/admin/quotes', requireAuth, requireAdmin, async (req, res, next) => {
   try {
-    const [allQuotes, allClients] = await Promise.all([listAllQuotes(), listAllClients()]);
+    const [allQuotes, allClients] = await Promise.all([
+      listAllQuotes({ includeCostLines: true }),
+      listAllClients()
+    ]);
 
     // Build a lookup map: clientId -> client record
     const clientMap = {};
@@ -334,11 +343,13 @@ app.get('/api/admin/quotes', requireAuth, requireAdmin, async (req, res, next) =
 
     // Tag each quote with client display info
     // Quotes whose clientId doesn't match any known user are "orphaned"
-    const tagged = allQuotes.map(q => ({
+    // `costLines` is dropped here — only the aggregated internal cost figure is sent.
+    const tagged = allQuotes.map(({ costLines, ...q }) => ({
       ...q,
       clientDisplayName: clientMap[q.clientId]?.fullName || null,
       clientEmail: clientMap[q.clientId]?.email || null,
-      isOrphaned: !clientMap[q.clientId]
+      isOrphaned: !clientMap[q.clientId],
+      costSummary: buildQuoteCostSummary(costPriceIndex, costLines, q.summary?.totalValue)
     }));
 
     res.json({ quotes: tagged, clients: allClients });
@@ -381,6 +392,19 @@ app.delete('/api/admin/clients/:id', requireAuth, requireAdmin, async (req, res,
     res.json({ ok: true });
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ADMIN DELETE QUOTE — used by the orphaned-quote cleanup in the admin panel.
+// Removes the quote file and its R2 backup so it cannot come back on restart.
+app.delete('/api/admin/quotes/:clientId/:id', requireAuth, requireAdmin, async (req, res, next) => {
+  try {
+    await deleteQuote(req.params.clientId, req.params.id);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err?.statusCode === 404 ? 404 : 500).json({
+      error: err instanceof Error ? err.message : 'Failed to delete quote.'
+    });
   }
 });
 

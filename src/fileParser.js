@@ -143,6 +143,7 @@ const ATHENA_PRICE_LIST_HEADERS = {
   unit: ['packaging per ctn', 'order quantity'],
   remarks: ['remarks', 'comments', 'note', 'notes'],
   price: ['sale price'],
+  costPrice: ['cost price', 'cost'],
   itemCode: ['item code']
 };
 
@@ -151,6 +152,7 @@ const STANDARD_PRICE_LIST_HEADERS = {
   keywords: ['keywords'],
   unit: ['unit'],
   price: ['price'],
+  costPrice: ['cost price', 'cost_price', 'cost'],
   packSize: ['pack size', 'pack_size'],
   unitType: ['unit type', 'unit_type']
 };
@@ -811,7 +813,9 @@ function parseStandardPriceList(rows) {
         unit,
         supplyOptions: supplyUnitMetadata.supplyOptions,
         unitType: String(row[indexes.unitType] ?? '').trim() || supplyUnitMetadata.unitType,
-        price: parseNumber(row[indexes.price]) ?? 0
+        price: parseNumber(row[indexes.price]) ?? 0,
+        // Internal-only figure: never exposed to clients, admin margin reporting only.
+        costPrice: indexes.costPrice >= 0 ? parseNumber(row[indexes.costPrice]) : null
       };
     });
 }
@@ -842,6 +846,8 @@ function parseAthenaWorkbook(workbook, options = {}) {
     for (const [rowOffset, row] of dataRows.entries()) {
       const productName = String(row[indexes.product] ?? '').trim();
       const price = parseNumber(row[indexes.price]);
+      // Internal-only figure: never exposed to clients, admin margin reporting only.
+      const costPrice = indexes.costPrice >= 0 ? parseNumber(row[indexes.costPrice]) : null;
       const itemCode = String(row[indexes.itemCode] ?? '').trim();
       const remarks = indexes.remarks >= 0 ? String(row[indexes.remarks] ?? '').trim() : '';
       const sourceRowNumber = headerRowIndex + 2 + rowOffset;
@@ -899,7 +905,8 @@ function parseAthenaWorkbook(workbook, options = {}) {
         sourceRowNumber,
         unitKgEquivalent,
         forceKgConversion,
-        price
+        price,
+        costPrice: Number.isFinite(costPrice) && costPrice > 0 ? costPrice : null
       };
 
       const productWithOverrides = applyApproximatePieceWeight(itemCode, baseProduct);
