@@ -260,6 +260,38 @@
     }
 
     // =====================
+    // INTERNAL COST — ADMIN ONLY
+    // Cost price x supplier qty, summed per quote. Never rendered client-side
+    // and never included in the generated XLSX/PDF a client receives.
+    // =====================
+    function money(value) {
+      return `£${Number(value || 0).toFixed(2)}`;
+    }
+
+    function costCells(q) {
+      const cost = q.costSummary;
+
+      if (!cost || !cost.linesCosted) {
+        return `<td style="color:var(--muted)">—</td>
+                <td style="color:var(--muted)">—</td>`;
+      }
+
+      const partial = !cost.isComplete && cost.linesMissingCost > 0
+        ? `<span title="${cost.linesMissingCost} quoted line${cost.linesMissingCost !== 1 ? 's have' : ' has'} no cost price in the master list — figure is understated" style="color:var(--review-text);margin-left:4px">*</span>`
+        : '';
+
+      const margin = cost.marginPercent === null
+        ? '—'
+        : `${cost.marginPercent.toFixed(1)}%`;
+      const marginColor = cost.marginPercent === null || cost.marginPercent >= 20
+        ? 'var(--text)'
+        : 'var(--danger-strong)';
+
+      return `<td style="white-space:nowrap;font-weight:600">${money(cost.totalCostValue)}${partial}</td>
+              <td style="white-space:nowrap;color:${marginColor}" title="Gross profit ${money(cost.grossProfit)}">${margin}</td>`;
+    }
+
+    // =====================
     // QUOTE ROW
     // =====================
     function quoteRow(q) {
@@ -289,6 +321,7 @@
         <td>${esc(q.vesselName || '—')}</td>
         <td>${esc(q.port || '—')}</td>
         <td>${q.summary?.lineCount ?? '—'}</td>
+        ${costCells(q)}
         <td>${badge}</td>
         <td style="white-space:nowrap">${q.updatedAt ? new Date(q.updatedAt).toLocaleString('en-GB') : '—'}</td>
         <td style="white-space:nowrap">${dlButtons}</td>
@@ -330,7 +363,10 @@
       }
       return `<table class="admin-table">
         <thead><tr>
-          <th>Quote #</th><th>Client name</th><th>Vessel</th><th>Port</th><th>Lines</th><th>Status</th><th>Updated</th><th>Download</th>
+          <th>Quote #</th><th>Client name</th><th>Vessel</th><th>Port</th><th>Lines</th>
+          <th title="Cost price x supplier quantity, from the master price list. Internal only — never shown to clients or included in the downloaded quote.">Total cost price</th>
+          <th title="Gross margin on the quoted sale total.">Margin</th>
+          <th>Status</th><th>Updated</th><th>Download</th>
         </tr></thead>
         <tbody>${quotes.map(quoteRow).join('')}</tbody>
       </table>`;
